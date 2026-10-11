@@ -1,0 +1,45 @@
+{
+	"geode": "5.10.1",
+	"gd": {
+		"win": "2.2081"
+	},
+	"id": "zhulis.crash-doctor",
+	"name": "Crash Doctor",
+	"version": "v0.1.0",
+	"developer": "Zhulis",
+	"early-load": true,
+	"load-priority": -2800,
+	"description": "After a crash, shows where it happened, what most likely went wrong and what you did before",
+	"repository": "https://github.com/ZhulinskiiDanil/crash-doctor",
+	"links": {
+		"source": "https://github.com/ZhulinskiiDanil/crash-doctor",
+		"community": "https://discord.gg/duuG4RqJKh"
+	},
+	"issues": {
+		"info": "Report bugs on GitHub or in the Discord server",
+		"url": "https://github.com/ZhulinskiiDanil/crash-doctor/issues"
+	},
+	"tags": [
+		"developer",
+		"utility"
+	],
+	"settings": {
+		"show-report": {
+			"name": "Show the report",
+			"description": "After a crash, the report shows over the main menu at the next start. Off: it's only written to the log",
+			"type": "bool",
+			"default": true
+		},
+		"language": {
+			"name": "Language",
+			"description": "The report's language. Auto: Russian on a Russian Windows, English otherwise",
+			"type": "string",
+			"default": "Auto",
+			"one-of": [
+				"Auto",
+				"English",
+				"Russian"
+			]
+		}
+	}
+}

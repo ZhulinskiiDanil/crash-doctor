@@ -1,0 +1,11 @@
+{
+	"geode": "5.10.1",
+	"gd": {
+		"win": "2.2081"
+	},
+	"id": "zhulis.crash-doctor-testbed",
+	"name": "Crash Doctor Testbed",
+	"version": "v1.0.0",
+	"developer": "Zhulis",
+	"description": "Crashes the game on purpose, for testing Crash Doctor. Never published"
+}
