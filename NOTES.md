@@ -142,7 +142,7 @@ analysis, crumbs, report, history, session).
 | hook-null | null-pointer | zhulis.crash-doctor-testbed | 148 (148) | MenuLayer::onAchievements | 2026-10-11_15-19-39 | yes |
 | none | no report | | | | | the game runs |
 
-Every report had the testbed's two button presses in its crumbs. The first `none` run (17:20) found the game closed
+Every report's crumbs had the testbed's two button presses (checked in the logs' `crash-doctor-crumb` lines), hook-null one: it crashes on the first press, inside it. The first `none` run (17:20) found the game closed
 after 38 s: a normal exit ("Shutting down logger"), no crashlog, no report; who closed it isn't in the log. Run
 again at 17:21: no report, the game running.
 
