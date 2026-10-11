@@ -101,7 +101,11 @@ class $modify(CrumbKeyboard, CCKeyboardDispatcher)
 {
   bool dispatchKeyboardMSG(enumKeyCodes key, bool down, bool repeat, double time)
   {
-    if (down && !repeat)
+    // A modifier alone is part of the next key's name
+    bool modifier = key == KEY_Control || key == KEY_Shift || key == KEY_Alt || key == KEY_LeftControl ||
+                    key == KEY_RightContol || key == KEY_LeftShift || key == KEY_RightShift || key == KEY_LeftWindowsKey ||
+                    key == KEY_RightWindowsKey;
+    if (down && !repeat && !modifier)
     {
       auto name = keyName(key, this);
       if (name.empty())

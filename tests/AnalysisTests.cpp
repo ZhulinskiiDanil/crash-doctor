@@ -208,9 +208,24 @@ int main()
     crash.registers[16] = 0x4141414141410000;
     crash.frames.insert(crash.frames.begin() + 1, frame(M_TESTBED, TESTBED, 0x1300, 0x1200));
     crash.callerCode = {0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0x50, 0x30};
+    crash.registers[0] = 0x2000000;
     auto diagnosis = diagnose(crash);
     CHECK(diagnosis.kind == Kind::UseAfterFree);
     CHECK(diagnosis.frame == 1);
+
+
+    // Landing on 0 through a broken table is still a deleted object, not a null pointer
+    crash.frames[0].address = 0;
+    crash.registers[16] = 0;
+    crash.parameters = {8, 0};
+    CHECK(diagnose(crash).kind == Kind::UseAfterFree);
+    // Through a table in a module whose slot is 0: past the end of a base class' vtable, a destroyed object
+    crash.registers[0] = TESTBED + 0x8000;
+    CHECK(diagnose(crash).kind == Kind::UseAfterFree);
+    CHECK(diagnose(crash).evidence.find("left by a destructor") != std::string::npos);
+    crash.registers[0] = 0x2000000;
+    crash.registers[16] = 0x4141414141410000;
+    crash.parameters = {8, 0x4141414141410000};
 
     // Reached by a direct call instead: not a vtable
     crash.callerCode = {0x90, 0x90, 0x90, 0xE8, 0x00, 0x10, 0x00, 0x00};

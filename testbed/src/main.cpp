@@ -1,7 +1,6 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/MenuLayer.hpp>
 
-#include <cstring>
 #include <thread>
 
 using namespace geode::prelude;
@@ -23,7 +22,6 @@ namespace
   volatile int s_depth = 0;
   // The node the use after free keeps a plain pointer to
   CCNode* s_stale = nullptr;
-  std::vector<char*> s_junk;
 
   std::string readKind()
   {
@@ -55,11 +53,13 @@ namespace
     virtual ~Listener() { notify(); }
     virtual void onEvent() = 0;
     NOINLINE void notify();
+    int notified = 0;
   };
 
   NOINLINE void Listener::notify()
   {
     onEvent(); // expect: pure-virtual-call
+    notified++;
   }
 
   struct ScoreListener : Listener
@@ -68,30 +68,15 @@ namespace
     void onEvent() override { score++; }
   };
 
-  // The heap reuses the freed node's memory for other data, as the game's allocations would
-  void reuseFreedMemory(CCNode* freed)
-  {
-    static char const text[] = "level name: Stereo Madness; ";
-    for (int round = 0; round < 64; round++)
-    {
-      for (int i = 0; i < 1024; i++)
-      {
-        auto block = static_cast<char*>(operator new(sizeof(CCNode)));
-        for (size_t at = 0; at < sizeof(CCNode); at++)
-          block[at] = text[at % (sizeof(text) - 1)];
-        s_junk.push_back(block);
-      }
-      // Reading the freed node here is the bug's own undefined behavior, only to make the check repeatable
-      if (std::memcmp(freed, text, 8) == 0)
-        return;
-    }
-  }
-
   NOINLINE void workerThread()
   {
-    // A label made off the main thread, like from a web request's callback
-    auto label = CCLabelBMFont::create("Loaded!", "bigFont.fnt"); // expect: wrong-thread
-    log::info("The thread made a label: {}", static_cast<void*>(label));
+    // UI changed off the main thread, like in a web request's callback: a node that isn't there (another
+    // thread's work, not done yet) added to the scene. cocos isn't thread-safe and doesn't check: the
+    // crash is inside it, on this thread
+    auto scene = CCDirector::get()->getRunningScene();
+    auto badge = scene->getChildByID("testbed-badge-not-made-yet");
+    scene->addChild(badge); // expect: wrong-thread
+    log::info("The thread added {}", static_cast<void*>(badge));
   }
 } // namespace
 
@@ -116,8 +101,14 @@ class $modify(TestbedMenuLayer, MenuLayer)
       s_stale->setID("testbed-marker");
       this->addChild(s_stale);
     }
-    this->scheduleOnce(schedule_selector(TestbedMenuLayer::onPressButtons), 1.5f);
-    this->scheduleOnce(schedule_selector(TestbedMenuLayer::onCrash), 3.f);
+    // Timed from a thread, not the layer's scheduler: the settings the buttons open pause the menu
+    Ref<TestbedMenuLayer> layer = this;
+    std::thread([layer] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+      queueInMainThread([layer] { layer->onPressButtons(0.f); });
+      std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+      queueInMainThread([layer] { layer->onCrash(0.f); });
+    }).detach();
     return true;
   }
 
@@ -169,8 +160,8 @@ class $modify(TestbedMenuLayer, MenuLayer)
   NOINLINE void crashUseAfterFree()
   {
     // Removed from the menu, its last reference: the node is deleted, the plain pointer stays
+    // The destructor leaves the base class' vtable in the memory: a virtual call past its end lands nowhere
     s_stale->removeFromParent();
-    reuseFreedMemory(s_stale);
     s_stale->setPosition({10.f, 10.f}); // expect: use-after-free
   }
 };

@@ -251,7 +251,8 @@ namespace
     record.frameCount = 0;
     __try
     {
-      while (context.Rip && record.frameCount < session::MAX_FRAMES)
+      // The top frame may be at 0 (a call through a null or garbage pointer): it's recorded and unwound
+      while ((context.Rip || record.frameCount == 0) && record.frameCount < session::MAX_FRAMES)
       {
         auto& frame = record.frames[record.frameCount];
         auto pc = context.Rip;

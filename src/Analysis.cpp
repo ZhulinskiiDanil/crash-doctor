@@ -215,26 +215,41 @@ namespace
     return true;
   }
 
+  // The register of `call [reg+disp]` right before the second frame's return address, or -1
+  int brokenTableRegister(Crash const& crash)
+  {
+    auto rip = crash.registers[16];
+    if (inModule(crash, rip) || crash.callerCode.size() < 7)
+      return -1;
+    auto bytes = crash.callerCode.data();
+    auto size = crash.callerCode.size();
+    for (size_t length : {2, 3, 4, 6, 7})
+    {
+      auto call = decode::memoryCall(bytes + size - length, length);
+      if (!call.ok || call.jump || call.length != length || call.base < 0 || call.base == 4)
+        continue;
+      // A live object's vtable slot always points at code. Landing outside code means the table isn't one
+      // (the object's memory holds other data), or the slot is past the end of a shorter table: a base
+      // class' table, which is what a destructor leaves in the object
+      return call.base;
+    }
+    return -1;
+  }
+
+  bool calledThroughBrokenTable(Crash const& crash) { return brokenTableRegister(crash) >= 0; }
+
   bool diagnoseUseAfterFree(Crash const& crash, Diagnosis& diagnosis, Access const& access)
   {
     std::string evidence;
     auto rip = crash.registers[16];
 
-    // Executing something that isn't code, reached by an indirect call: the pointer it was read from
-    // (a vtable slot) was garbage
-    if (!inModule(crash, rip) && crash.callerCode.size() >= 7)
+    // Executing something that isn't code, reached by a virtual call whose table isn't in any module
+    if (auto reg = brokenTableRegister(crash); reg >= 0)
     {
-      auto bytes = crash.callerCode.data();
-      auto size = crash.callerCode.size();
-      for (size_t length : {2, 3, 6, 7})
-      {
-        auto call = decode::memoryCall(bytes + size - length, length);
-        if (call.ok && !call.jump && call.length == length && call.base >= 0)
-        {
-          evidence = "called " + hex(rip) + ", outside every module, through a pointer read from memory";
-          break;
-        }
-      }
+      auto table = crash.registers[reg];
+      evidence = "a virtual call landed on " + hex(rip) + ", not code, through the vtable at " + hex(table) +
+                 (inModule(crash, table) ? " (past its end: a base class' table, left by a destructor)"
+                                         : " (not in any module: the object's memory holds other data)");
     }
 
     // A virtual call faulting on reading its vtable slot: the vtable pointer isn't in any module
@@ -410,6 +425,14 @@ Diagnosis analysis::diagnose(Crash const& crash)
 
   if (diagnoseThread(crash, diagnosis))
     return diagnosis;
+
+  // A virtual call landing on 0 or garbage through a table that isn't one: a deleted object, not a null
+  // pointer, even when it lands on 0
+  if (calledThroughBrokenTable(crash) && diagnoseUseAfterFree(crash, diagnosis, access))
+  {
+    diagnosis.hook = hookOf(crash, diagnosis.frame, true);
+    return diagnosis;
+  }
 
   if (access.address < NULL_AREA)
   {
