@@ -14,15 +14,15 @@ Download `zhulis.crash-doctor.geode` from the newest of the [releases](https://g
 
 ## What it tells
 
-Each diagnosis is a "most likely", with what it means and what to do. It's given only on signs that hold up: otherwise the report says there's no diagnosis and shows the facts.
+Each diagnosis is a "most likely", with what it means and what to do. It's given only on signs that hold up: otherwise the report says there's no diagnosis and shows the facts. A mod is named only when its own code is where it crashed, with no other mod's hook in between: a mod that merely hooks something on the way isn't blamed.
 
 | Diagnosis | The signs |
 | --- | --- |
 | Null pointer | An access violation at an address below 64 KB (Windows never maps it), with a mod on the stack. The advice is about checking what `getChildByID`, `typeinfo_cast` and `create()` return |
 | Endless recursion | A stack overflow with one mod function filling the stack |
 | A hook calls itself | The same, and the function is the mod's hook of that method (`this->onMoreGames(sender)` instead of `MenuLayer::onMoreGames(sender)`) |
-| A deleted object used | A virtual call that landed outside code: the object's vtable pointer isn't one (its memory holds other data), or the slot is past the end of a base class' table, which is what a destructor leaves behind. Or the fill pattern of freed memory. The advice is about `Ref<>` and `retain()` |
-| UI from another thread | A crash inside cocos2d on a thread a mod runs. The advice is `queueInMainThread` |
+| A deleted object used | A virtual call that landed outside code: the object's vtable pointer isn't one (its memory holds other data), or the slot is past the end of a base class' vtable in a module's read-only data, which is what a destructor leaves behind. Or the fill pattern of freed memory. The advice is about `Ref<>` and `retain()` |
+| UI from another thread | A crash inside a cocos2d UI function (not its file or image helpers) on a thread a mod started. The advice is `queueInMainThread` |
 | Pure virtual call | The C runtime's `_purecall`: a method called on an object while it's destroyed |
 | Uncaught C++ exception | Its type and `what()` |
 | Division by zero | An integer division by zero in a mod's code |
@@ -47,7 +47,7 @@ crash-doctor-result {"diagnosis":"hook-recursion","culprit":"zhulis.crash-doctor
 
 Geode's crash window and its crashlog work exactly as before. Crash Doctor's handler is in front of Geode's in the chain of unhandled exception filters: it writes what it needs and hands the crash to Geode's. A pure virtual call would end the game without either (the C runtime's `abort()`); Crash Doctor turns it into an exception, so Geode writes a crashlog for it too.
 
-At the moment of the crash nothing allocates, locks, logs or touches cocos: everything goes into a file mapped into memory when the game started, which survives the process dying. The main thread keeps 128 KB of stack for the handlers after a stack overflow. Symbols, the analysis and the window come at the next start.
+At the moment of the crash nothing allocates, locks, logs or touches cocos: everything goes into a file mapped into memory when the game started, which survives the process dying. The main thread keeps 64 KB of stack for the handlers after a stack overflow. Symbols, the analysis and the window come at the next start.
 
 ## Settings
 

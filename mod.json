@@ -5,7 +5,7 @@
 	},
 	"id": "zhulis.crash-doctor",
 	"name": "Crash Doctor",
-	"version": "v0.2.0",
+	"version": "v0.3.0",
 	"developer": "Zhulis",
 	"early-load": true,
 	"load-priority": -2800,

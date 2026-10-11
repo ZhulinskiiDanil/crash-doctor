@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.0
+
+Fixes from a code review, most of them against confident diagnoses that could be wrong:
+
+- A mod is blamed only when no hook's handler is between its code and the crash: a mod that merely hooks
+  something on the way (`PlayLayer::init`, `CCScheduler::update`) is no longer named for a crash in the game's code
+- "A hook calls itself" needs the function's class to be the hooked class' `$modify`, not just the same method name
+- "UI from another thread" needs a named cocos UI function on the stack; cocos' file, image and zip helpers are fine
+  on worker threads
+- "A deleted object was used" needs the table to be in a module's read-only data (a vtable), or not in any module;
+  a call landing on null through a heap struct is a null pointer
+- Nothing is called at the moment of a crash any more: the text of standard exceptions is read where it is
+- DbgHelp's options are restored after the report, so Geode's crash handler finds them as it left them
+- A mod updated since the crash gets no names from the wrong PDB (its PDB signature is checked)
+- The report's guard is only up while the report is made and first drawn; a crash of another mod while the report
+  is on screen is reported at the next start
+- A Cyrillic user name is replaced in copied reports too; keys that may type text are never named, and typing is
+  one crumb (not even a password's length is kept)
+- Crash Doctor's crash filter stays in front if another mod installs its own later
+- The main thread's extra stack for the handlers is 64 KB instead of 128 KB
+- Improved Logger gets the last actions only once the game has loaded, twice a second at most
+
 ## v0.2.0
 
 - **The source** around the crash's line in the report, when the file is on this computer

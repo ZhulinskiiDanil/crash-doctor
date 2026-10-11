@@ -81,3 +81,73 @@ Start: **Sun Oct 11 14:44:25 2026** (the first `date` of the run). Budget: 8 hou
   then only from the scheduler, twice a second at most. Also: Crash Doctor now checks every 2 s that its crash
   filter is still in front (another mod's could replace it); none did in the checks.
 - 16:55 all 8 testbed kinds right again after the review fixes.
+- 17:00 backlog 7, a damaged data file: `tests/SessionTests.cpp` (Windows) writes 200 session files with garbage in
+  a valid header and runs each through reading, DbgHelp, the analysis and the report's text: 100 rejected by the
+  checks, 100 read and reported, no crash.
+
+## The backlog, item by item
+
+| # | Item | Done | Checked by |
+| --- | --- | --- | --- |
+| 1 | History: recent crashes, the same ones grouped, counted | yes | `HistoryTests`, the "Recent crashes" section in the game after repeated testbed crashes |
+| 2 | The source around the crash's line | yes | `ReportTests` (a temp file), screenshot of the "Code" section |
+| 3 | Improved Logger: the log by mod in the report, crumbs in its console | yes (the grouping works without it) | `ReportTests` for the grouping; "Improved Logger is here" in the game's log |
+| 4 | More diagnoses: uncaught C++ exception, division by zero, a crash in another mod's hook (whose hook) | yes | testbed kinds `cpp-exception`, `divide`, `hook-null`: all right |
+| 4 | ...a resource that didn't load (nullptr from `CCSprite::create`) | **skipped** | Geode gives `CCSprite::create` a placeholder for a missing file (the testbed's first thread crash tried exactly that and got a sprite), so the nullptr barely exists with Geode; and a null deref can't tell where its null came from, so this diagnosis could only be a guess |
+| 5 | Developer mode: the whole report with the mod's PDB or a setting, a short one for players | yes | *Report detail* = Always short, screenshot |
+| 6 | Russian and English, settings, about.md, README with screenshots | yes | screenshots in both languages |
+| 7 | Own code review: the handler, a crash during the report, a damaged file, no load in normal play | yes | a reviewer agent, the guard check, `SessionTests`, Mod Profiler's numbers |
+
+## The hangs at the game's start (investigated 16:53-17:13, closed)
+
+What is known:
+- 3 starts of about 60 in the checks hung while the game loaded (16:36:30, 16:45:01, 17:01:39). All three look the
+  same: the log stops at line 40, right after Geode's "Entry took 0.4s", the last line is Mod Profiler's with
+  ~450-500 "scanned" samples, and nothing is logged after it (not even Mod Profiler's line once a second), so the
+  whole process stopped, not only the main thread. That's the moment `LoadingLayer` is pushed.
+- All three were in `testbed/check.sh`'s sequence (a start right after the previous game was killed). Two of them
+  were the start right after the recursion's report session; one after a hook-null crash.
+- Tried to reproduce, all sequential: 10 plain starts (2 s after a kill): 0 hangs. 10 starts right after a kill (no
+  pause): 0 hangs. Recursion check then plain starts, twice (4 starts): 0 hangs. The full regression after that:
+  one more hang (17:01:39), at the same place in the sequence.
+- (One test at 17:07 was run while a background regression was still running: two scripts starting and killing the
+  game at once. Its results and the last line of that round are thrown away, a mistake of mine.)
+
+What wasn't proven: whose it is. The start is where Crash Doctor pushed its first crumb into Improved Logger's
+console (`watch`) while Mod Profiler suspends the main thread a thousand times a second; since 16:53 Crash Doctor
+sends nothing to Improved Logger before the game has loaded, but the 17:01 hang happened after that change, so
+that wasn't it (or not only it). Crash Doctor does little else at that moment: its scene hook writes one crumb
+(an `snprintf` into the mapped file), its crash filter isn't called, its session file was made at its own load,
+earlier. A hang
+inside the process during loading with Mod Profiler's sampler busy (its scanned count jumps exactly then) points
+at the sampler or at whatever the game does there, but without a dump of the hung process this stays a guess.
+
+What would settle it: a minidump of a hung start (`procdump -h` or Task Manager's "Create dump file"), and the same
+run of ~50 starts with Mod Profiler off, then with Crash Doctor off.
+
+## The final check (v0.3.0 code, 17:14-17:21, one script after another, no other game running)
+
+`geode build` of the mod and of the testbed: packaged and installed. Tests: 6 of 6 suites passed (decode,
+analysis, crumbs, report, history, session).
+
+| Kind | Diagnosis | Culprit | Line (expected) | Hook | Geode's crashlog | Report shown, no crash |
+| --- | --- | --- | --- | --- | --- | --- |
+| null | null-pointer | zhulis.crash-doctor-testbed | 195 (195) | | 2026-10-11_15-14-59 | yes |
+| recursion | hook-recursion | zhulis.crash-doctor-testbed | 138 (138) | MenuLayer::onMoreGames | 2026-10-11_15-15-39 | yes |
+| use-after-free | use-after-free | zhulis.crash-doctor-testbed | 203 (203) | | 2026-10-11_15-16-18 | yes |
+| thread | wrong-thread | zhulis.crash-doctor-testbed | 78 (78) | | 2026-10-11_15-16-58 | yes |
+| pure-virtual | pure-virtual-call | zhulis.crash-doctor-testbed | 61 (61) | | 2026-10-11_15-17-39 | yes |
+| cpp-exception | cpp-exception | zhulis.crash-doctor-testbed | 179 (179) | | 2026-10-11_15-18-20 | yes |
+| divide | divide-by-zero | zhulis.crash-doctor-testbed | 187 (187) | | 2026-10-11_15-19-01 | yes |
+| hook-null | null-pointer | zhulis.crash-doctor-testbed | 148 (148) | MenuLayer::onAchievements | 2026-10-11_15-19-39 | yes |
+| none | no report | | | | | the game runs |
+
+Every report had the testbed's two button presses in its crumbs. The first `none` run (17:20) found the game closed
+after 38 s: a normal exit ("Shutting down logger"), no crashlog, no report; who closed it isn't in the log. Run
+again at 17:21: no report, the game running.
+
+Screenshots looked at during the run (the files stay out of the repo, in the session's scratchpad): the null
+pointer, the recursion, the use after free, the thread, the pure virtual call, the short report, the English report
+and the code section; the two in `docs/` are from them. Every one was readable, the Russian text right (TTF), the
+buttons in place. Some had Mod Profiler's table over the left half: something pressed its key (`Ctrl+Shift+P`
+showed in the crumbs at ~9 s of each start), not Crash Doctor.
