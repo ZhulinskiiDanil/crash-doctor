@@ -9,7 +9,7 @@ namespace
   {
     Data data;
     analysis::Module testbed;
-    testbed.path = R"(C:\Users\Danil\GD\geode\unzipped\zhulis.crash-doctor-testbed\zhulis.crash-doctor-testbed.dll)";
+    testbed.path = R"(C:\Users\Player\GD\geode\unzipped\zhulis.crash-doctor-testbed\zhulis.crash-doctor-testbed.dll)";
     testbed.name = "zhulis.crash-doctor-testbed.dll";
     testbed.kind = analysis::classify(testbed.path, testbed.modId);
     testbed.base = 0x7FFC00000000;
@@ -22,7 +22,7 @@ namespace
     frame.address = testbed.base + 0x1234;
     frame.functionRva = 0x1200;
     frame.function = "TestbedMenuLayer::crashNull";
-    frame.file = R"(C:\Users\Danil\src\testbed\main.cpp)";
+    frame.file = R"(C:\Users\Player\src\testbed\main.cpp)";
     frame.line = 42;
     data.crash.frames.push_back(frame);
     data.crash.registers[16] = frame.address;
@@ -43,7 +43,7 @@ int main()
 
   CHECK(frameLine(data, data.crash.frames[0]) == "zhulis.crash-doctor-testbed.dll!TestbedMenuLayer::crashNull (main.cpp:42)");
   CHECK(culpritLine(data) == "Crash Doctor Testbed v1.0.0 (zhulis.crash-doctor-testbed)");
-  CHECK(location(data) == R"(C:\Users\Danil\src\testbed\main.cpp:42)");
+  CHECK(location(data) == R"(C:\Users\Player\src\testbed\main.cpp:42)");
   CHECK(vscodeLink(R"(D:\Dev\my mod\src\main.cpp)", 42) == "vscode://file/D:/Dev/my%20mod/src/main.cpp:42");
 
   // ! --- Words --- !
@@ -90,17 +90,17 @@ int main()
     // Not a mod on the stack: not named
     CHECK(text.find("geode.node-ids") == std::string::npos);
 
-    auto scrubbed = scrub(text, R"(C:\Users\Danil)");
-    CHECK(scrubbed.find("Danil") == std::string::npos);
+    auto scrubbed = scrub(text, R"(C:\Users\Player)");
+    CHECK(scrubbed.find("Player") == std::string::npos);
     CHECK(scrubbed.find(R"(%USERPROFILE%\src\testbed\main.cpp:42)") != std::string::npos);
   }
 
   // ! --- Scrubbing --- !
 
-  CHECK(scrub(R"(c:\users\danil\a.txt and C:/Users/Danil/b.txt)", R"(C:\Users\Danil)") ==
+  CHECK(scrub(R"(c:\users\player\a.txt and C:/Users/Player/b.txt)", R"(C:\Users\Player)") ==
         R"(%USERPROFILE%\a.txt and %USERPROFILE%/b.txt)");
-  CHECK(scrub(R"(D:\Users\Danil\x)", R"(C:\Users\Danil)") == R"(D:\Users\%USERNAME%\x)");
-  CHECK(scrub("nothing here", R"(C:\Users\Danil)") == "nothing here");
+  CHECK(scrub(R"(D:\Users\Player\x)", R"(C:\Users\Player)") == R"(D:\Users\%USERNAME%\x)");
+  CHECK(scrub("nothing here", R"(C:\Users\Player)") == "nothing here");
   CHECK(scrub("short", "") == "short");
 
   // ! --- The log's line --- !
@@ -110,7 +110,7 @@ int main()
     CHECK(line.find("\"diagnosis\":\"null-pointer\"") != std::string::npos);
     CHECK(line.find("\"culprit\":\"zhulis.crash-doctor-testbed\"") != std::string::npos);
     // Backslashes escaped in JSON
-    CHECK(line.find(R"("file":"C:\\Users\\Danil\\src\\testbed\\main.cpp")") != std::string::npos);
+    CHECK(line.find(R"("file":"C:\\Users\\Player\\src\\testbed\\main.cpp")") != std::string::npos);
     CHECK(line.find("\"line\":42") != std::string::npos);
     CHECK(line.find("\"crashlog\":\"2026-10-11_15-00-00.log\"") != std::string::npos);
   }
