@@ -4,6 +4,7 @@
 // text "Copy report" puts on the clipboard and the line for the log. No Windows, no Geode
 #include "Analysis.hpp"
 #include "Crumbs.hpp"
+#include "History.hpp"
 
 #include <string>
 #include <string_view>
@@ -24,6 +25,12 @@ namespace report
     std::string version;
   };
 
+  struct SourceLine
+  {
+    int number = 0;
+    std::string text;
+  };
+
   // Everything a report shows, gathered at the start after a crash
   struct Data
   {
@@ -40,6 +47,10 @@ namespace report
     std::string crashlog;
     // Seconds from the session's start to the last crumb
     double sessionSeconds = 0;
+    // The source around the line the diagnosis points at, when the file is on this computer
+    std::vector<SourceLine> source;
+    // The recent crashes, this one first, with how many times each happened
+    std::vector<history::Entry> history;
   };
 
   struct Words
@@ -75,6 +86,15 @@ namespace report
 
   // The diagnosis' key in the result line: "null-pointer", "recursion", ...
   std::string_view kindKey(analysis::Kind kind);
+
+  // The lines `radius` around `line` of a source file, empty when it can't be read or is too short
+  std::vector<SourceLine> readSource(std::string const& path, int line, int radius = 3);
+
+  // The source as "  137 | code" lines, the crash's line marked with ">"
+  std::vector<std::string> sourceLines(Data const& data);
+
+  // The history's entry for this crash: what makes it the same as another
+  history::Entry historyEntry(Data const& data, int64_t time);
 
   // The crumbs as "12.3 s  button ..." lines, newest last, at most `count`
   std::vector<std::string> crumbLines(Data const& data, size_t count);

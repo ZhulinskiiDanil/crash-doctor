@@ -104,6 +104,13 @@ bool ReportPopup::init(report::Data const& data, report::Language language)
   addText(words.explanation, FONT, 9.f, TEXT);
   addText(words.advice, FONT, 9.f, DIM, 3.f);
 
+  // The source around the line, when it's on this computer
+  if (auto source = report::sourceLines(m_data); !source.empty())
+  {
+    addSection(ui("Code", "Код"));
+    addText(fmt::format("{}", fmt::join(source, "\n")), MONO, 7.5f, TEXT);
+  }
+
   // The stack, a recursion folded
   addSection(ui("Stack", "Стек"));
   std::string stack;
@@ -139,6 +146,24 @@ bool ReportPopup::init(report::Data const& data, report::Language language)
   {
     addSection(ui("The log's last lines", "Последние строки лога"));
     addText(fmt::format("{}", fmt::join(m_data.logTail, "\n")), MONO, 7.f, DIM);
+  }
+
+  if (m_data.history.size() > 1 || (!m_data.history.empty() && m_data.history.front().count > 1))
+  {
+    addSection(ui("Recent crashes", "Недавние краши"));
+    std::vector<std::string> lines;
+    for (size_t i = 0; i < m_data.history.size() && i < 6; i++)
+    {
+      auto const& entry = m_data.history[i];
+      auto time = static_cast<std::time_t>(entry.time);
+      std::tm local{};
+      localtime_s(&local, &time);
+      char when[32];
+      std::strftime(when, sizeof(when), "%d.%m %H:%M", &local);
+      lines.push_back(fmt::format("{}{:>3}x  {}  {}  {}  {}", i == 0 ? "> " : "  ", entry.count, when, entry.kind,
+                                  entry.culprit.empty() ? "-" : entry.culprit, entry.where));
+    }
+    addText(fmt::format("{}", fmt::join(lines, "\n")), MONO, 7.5f, TEXT);
   }
 
   addSection(ui("Versions", "Версии"));

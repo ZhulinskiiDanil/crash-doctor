@@ -84,6 +84,8 @@ else
   echo "expected line in testbed/src/main.cpp: $expected"
   if [ -n "$shot" ]; then
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/screenshot.ps1")" "$(cygpath -w "$shot")"
+    # And one further down the report: the code, the stack, the last actions
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/screenshot.ps1")" "$(cygpath -w "${shot%.png}-down.png")" -scroll 6
   fi
   running && echo "the game is still running (no crash while showing the report)" || echo "FAIL: the game closed"
 fi

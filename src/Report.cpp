@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 
 using namespace report;
 using analysis::Kind;
@@ -289,6 +291,70 @@ std::string report::vscodeLink(std::string_view file, int line)
   return "vscode://file/" + encoded + ":" + std::to_string(line);
 }
 
+std::vector<SourceLine> report::readSource(std::string const& path, int line, int radius)
+{
+  std::vector<SourceLine> lines;
+  if (path.empty() || line <= 0)
+    return lines;
+  // The path is UTF-8 from the PDB
+  std::ifstream stream(std::filesystem::path(reinterpret_cast<char8_t const*>(path.c_str())));
+  if (!stream)
+    return lines;
+  std::string text;
+  for (int number = 1; std::getline(stream, text) && number <= line + radius; number++)
+  {
+    if (number < line - radius)
+      continue;
+    if (!text.empty() && text.back() == '\r')
+      text.pop_back();
+    // Tabs as spaces: the window's font has no tab stops
+    std::string expanded;
+    for (auto c : text)
+      expanded += c == '\t' ? std::string("    ") : std::string(1, c);
+    if (expanded.size() > 140)
+      expanded = expanded.substr(0, 140) + "...";
+    lines.push_back({number, expanded});
+  }
+  // The file is shorter than the line: not the file that was built
+  if (lines.empty() || lines.back().number < line)
+    lines.clear();
+  return lines;
+}
+
+std::vector<std::string> report::sourceLines(Data const& data)
+{
+  std::vector<std::string> lines;
+  auto frame = culpritFrame(data);
+  for (auto const& source : data.source)
+  {
+    char number[16];
+    std::snprintf(number, sizeof(number), "%5d", source.number);
+    auto marker = frame && source.number == frame->line ? "> " : "  ";
+    lines.push_back(marker + std::string(number) + " | " + source.text);
+  }
+  return lines;
+}
+
+history::Entry report::historyEntry(Data const& data, int64_t time)
+{
+  history::Entry entry;
+  entry.time = time;
+  entry.kind = std::string(kindKey(data.diagnosis.kind));
+  entry.culprit = data.diagnosis.culprit;
+  auto frame = culpritFrame(data);
+  if (frame && !frame->file.empty())
+    entry.where = fileName(frame->file) + ":" + std::to_string(frame->line);
+  // Without a culprit or a line: the first frame, as module+offset (the same code crashing again)
+  if (entry.where.empty())
+  {
+    auto const* first = frame ? frame : (data.crash.frames.empty() ? nullptr : &data.crash.frames[0]);
+    if (first)
+      entry.where = frameLine(data, *first);
+  }
+  entry.signature = entry.kind + "|" + entry.culprit + "|" + entry.where + "|" + analysis::exceptionName(data.crash.code);
+  return entry;
+}
+
 std::vector<std::string> report::crumbLines(Data const& data, size_t count)
 {
   std::vector<std::string> lines;
@@ -341,6 +407,14 @@ std::string report::copyText(Data const& data, Language language)
     }
   }
   text += "```\n";
+
+  if (auto source = sourceLines(data); !source.empty())
+  {
+    text += "```cpp\n";
+    for (auto const& line : source)
+      text += line + "\n";
+    text += "```\n";
+  }
 
   auto crumbs = crumbLines(data, 10);
   if (!crumbs.empty())

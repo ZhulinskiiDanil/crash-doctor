@@ -23,3 +23,6 @@ add_test(NAME report COMMAND report-tests)
 if (MSVC)
     add_compile_options(/utf-8)
 endif()
+
+add_executable(history-tests HistoryTests.cpp ../src/History.cpp)
+add_test(NAME history COMMAND history-tests)

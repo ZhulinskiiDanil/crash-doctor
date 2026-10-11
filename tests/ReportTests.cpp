@@ -1,6 +1,9 @@
 #include "../src/Report.hpp"
 #include "Check.hpp"
 
+#include <filesystem>
+#include <fstream>
+
 using namespace report;
 
 namespace
@@ -123,6 +126,37 @@ int main()
       copy.crash.frames.push_back(copy.crash.frames[0]);
     auto text = copyText(copy, Language::English);
     CHECK(text.find("... 100 more times") != std::string::npos);
+  }
+
+  // ! --- Source --- !
+
+  {
+    auto path = std::filesystem::temp_directory_path() / "crash-doctor-source-test.cpp";
+    {
+      std::ofstream file(path, std::ios::binary);
+      for (int i = 1; i <= 10; i++)
+        file << "\tline " << i << "\r\n";
+    }
+    auto file = path.string();
+    auto lines = readSource(file, 5);
+    CHECK(lines.size() == 7);
+    CHECK(lines.front().number == 2 && lines.back().number == 8);
+    CHECK(lines[3].text == "    line 5");
+    CHECK(readSource(file, 10).size() == 4);
+    // Past the end of the file: not the file that was built
+    CHECK(readSource(file, 40).empty());
+    CHECK(readSource(file, 0).empty());
+    CHECK(readSource(R"(Z:\no\such\file.cpp)", 3).empty());
+
+    auto copy = data;
+    copy.crash.frames[0].line = 5;
+    copy.source = lines;
+    auto shown = sourceLines(copy);
+    CHECK(shown.size() == 7);
+    CHECK(shown[3] == ">     5 |     line 5");
+    CHECK(shown[2] == "      4 |     line 4");
+    CHECK(copyText(copy, Language::English).find("```cpp") != std::string::npos);
+    std::filesystem::remove(path);
   }
 
   return finish("report");

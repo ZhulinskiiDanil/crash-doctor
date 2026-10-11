@@ -125,6 +125,19 @@ namespace
     data.crashlog = findCrashlog(previous.header.startTime);
     if (!data.crumbs.empty())
       data.sessionSeconds = data.crumbs.back().millis / 1000.0;
+    if (data.diagnosis.frame >= 0)
+    {
+      auto const& frame = data.crash.frames[data.diagnosis.frame];
+      data.source = report::readSource(frame.file, frame.line);
+    }
+
+    // The history: this crash counted with the same ones before
+    auto historyPath = Mod::get()->getSaveDir() / "history.tsv";
+    auto saved = file::readString(historyPath);
+    data.history = history::parse(saved ? *saved : "");
+    auto seconds = (static_cast<int64_t>(previous.header.startTime) - 116444736000000000LL) / 10000000;
+    history::add(data.history, report::historyEntry(data, seconds));
+    (void)file::writeString(historyPath, history::serialize(data.history));
     return data;
   }
 
