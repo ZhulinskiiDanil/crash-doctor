@@ -99,6 +99,20 @@ namespace report
   // The source as "  137 | code" lines, the crash's line marked with ">"
   std::vector<std::string> sourceLines(Data const& data);
 
+  struct LogGroup
+  {
+    std::string mod;
+    int lines = 0;
+    // Its warnings and errors
+    int problems = 0;
+    // Its last messages, oldest first
+    std::vector<std::string> last;
+  };
+
+  // Geode's log lines ("12:00:00 INFO  [Main] [Mod]: text") by the mod that logged them, the one that
+  // logged last first, with at most `keep` messages each. Lines that aren't Geode's go to the one above
+  std::vector<LogGroup> groupLog(std::vector<std::string> const& lines, size_t keep = 2);
+
   // The history's entry for this crash: what makes it the same as another
   history::Entry historyEntry(Data const& data, int64_t time);
 

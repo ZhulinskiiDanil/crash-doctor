@@ -81,6 +81,28 @@ int main()
     CHECK(describe(copy, Language::English).advice.find("MenuLayer::onMoreGames(...)") != std::string::npos);
   }
 
+  // ! --- The log by mod --- !
+
+  {
+    auto groups = groupLog({
+        "16:06:31 INFO  [Main] [Geode]: Loading mods",
+        "16:06:31 WARN  [Main] [Testbed]: No button settings-button to press",
+        "16:06:32 INFO  [Main] [Geode]: Loaded",
+        "16:06:33 ERROR [Main] [Testbed]: Something broke",
+        "  and its second line",
+        "16:06:34 INFO  [Mod Profiler] [Mod Profiler]: 996 samples",
+        "16:06:34 INFO  [Main] [Testbed]: Testbed: crashing now",
+    });
+    CHECK(groups.size() == 3);
+    CHECK(groups[0].mod == "Testbed" && groups[0].lines == 3 && groups[0].problems == 2);
+    CHECK(groups[0].last.size() == 2);
+    CHECK(groups[0].last[0] == "Something broke   and its second line");
+    CHECK(groups[0].last[1] == "Testbed: crashing now");
+    CHECK(groups[1].mod == "Mod Profiler" && groups[1].lines == 1);
+    CHECK(groups[2].mod == "Geode" && groups[2].lines == 2 && groups[2].problems == 0);
+    CHECK(groupLog({"not a log line"}).empty());
+  }
+
   // ! --- For a player --- !
 
   {

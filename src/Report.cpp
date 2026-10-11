@@ -373,6 +373,44 @@ std::vector<std::string> report::sourceLines(Data const& data)
   return lines;
 }
 
+std::vector<LogGroup> report::groupLog(std::vector<std::string> const& lines, size_t keep)
+{
+  std::vector<LogGroup> groups;
+  LogGroup* current = nullptr;
+  for (auto const& line : lines)
+  {
+    // "time LEVEL [thread] [mod]: message"
+    auto thread = line.find(" [");
+    auto mod = thread == std::string::npos ? std::string::npos : line.find("] [", thread);
+    auto end = mod == std::string::npos ? std::string::npos : line.find("]: ", mod + 3);
+    if (end == std::string::npos)
+    {
+      // A message's next lines
+      if (current && !current->last.empty())
+        current->last.back() += " " + line;
+      continue;
+    }
+    auto name = line.substr(mod + 3, end - mod - 3);
+    auto level = line.substr(0, thread);
+    auto it = std::find_if(groups.begin(), groups.end(), [&](LogGroup const& group) { return group.mod == name; });
+    if (it == groups.end())
+    {
+      groups.push_back({name});
+      it = groups.end() - 1;
+    }
+    it->lines++;
+    if (level.find("WARN") != std::string::npos || level.find("ERROR") != std::string::npos)
+      it->problems++;
+    it->last.push_back(line.substr(end + 3));
+    if (it->last.size() > keep)
+      it->last.erase(it->last.begin());
+    // The one that logged last goes first
+    std::rotate(groups.begin(), it, it + 1);
+    current = &groups.front();
+  }
+  return groups;
+}
+
 history::Entry report::historyEntry(Data const& data, int64_t time)
 {
   history::Entry entry;

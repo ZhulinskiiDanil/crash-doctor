@@ -5,7 +5,7 @@
 	},
 	"id": "zhulis.crash-doctor",
 	"name": "Crash Doctor",
-	"version": "v0.1.0",
+	"version": "v0.2.0",
 	"developer": "Zhulis",
 	"early-load": true,
 	"load-priority": -2800,
@@ -18,6 +18,12 @@
 	"issues": {
 		"info": "Report bugs on GitHub or in the Discord server",
 		"url": "https://github.com/ZhulinskiiDanil/crash-doctor/issues"
+	},
+	"dependencies": {
+		"zhulis.improved-logger": {
+			"version": ">=v1.5.0",
+			"required": false
+		}
 	},
 	"tags": [
 		"developer",

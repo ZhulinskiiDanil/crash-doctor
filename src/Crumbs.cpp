@@ -14,7 +14,13 @@ namespace
   // The newest crumb's text without its count, and how many times in a row it came
   char s_last[session::CRUMB_TEXT];
   uint32_t s_repeats = 0;
+  void (*s_listener)(char const*) = nullptr;
 } // namespace
+
+void crumbs::listen(void (*listener)(char const* text))
+{
+  s_listener = listener;
+}
 
 void crumbs::attach(session::File* file)
 {
@@ -49,6 +55,8 @@ void crumbs::add(char const* format, ...)
     s_repeats = 0;
   }
   slot.sequence = sequence;
+  if (s_listener)
+    s_listener(slot.text);
 }
 
 std::vector<crumbs::Crumb> crumbs::read(session::File const& file)

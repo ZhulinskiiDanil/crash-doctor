@@ -13,6 +13,9 @@ namespace crumbs
   // From now on crumbs go into `file`
   void attach(session::File* file);
 
+  // Called with each new crumb's text, after it's written (Improved Logger's console shows them)
+  void listen(void (*listener)(char const* text));
+
   // A crumb, printf-style. Main thread only (all the hooks that leave crumbs run there)
   void add(char const* format, ...);
 

@@ -187,10 +187,30 @@ void ReportPopup::fillDetails()
   else
     addText(fmt::format("{}", fmt::join(crumbs, "\n")), MONO, 7.5f, TEXT);
 
+  // The log: who logged what right before (the mods with warnings and errors stand out), then the last lines
   if (!m_data.logTail.empty())
   {
+    addSection(ui("The log by mod", "Лог по модам"));
+    std::string groups;
+    size_t shown = 0;
+    for (auto const& group : report::groupLog(m_data.logTail))
+    {
+      if (shown++ == 6)
+        break;
+      groups += fmt::format("{} - {} {}", group.mod, group.lines, ui("lines", "строк"));
+      if (group.problems)
+        groups += fmt::format(", {} {}", group.problems, ui("warnings and errors", "предупреждений и ошибок"));
+      groups += "\n";
+      for (auto const& message : group.last)
+        groups += "    " + (message.size() > 110 ? message.substr(0, 110) + "..." : message) + "\n";
+    }
+    if (!groups.empty())
+      groups.pop_back();
+    addText(groups, MONO, 7.f, DIM);
+
     addSection(ui("The log's last lines", "Последние строки лога"));
-    addText(fmt::format("{}", fmt::join(m_data.logTail, "\n")), MONO, 7.f, DIM);
+    auto start = m_data.logTail.size() > 8 ? m_data.logTail.end() - 8 : m_data.logTail.begin();
+    addText(fmt::format("{}", fmt::join(start, m_data.logTail.end(), "\n")), MONO, 7.f, DIM);
   }
 
   if (m_data.history.size() > 1 || (!m_data.history.empty() && m_data.history.front().count > 1))

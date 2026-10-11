@@ -1,5 +1,6 @@
 #include "Capture.hpp"
 #include "Crumbs.hpp"
+#include "LoggerLink.hpp"
 #include "Report.hpp"
 #include "ReportPopup.hpp"
 #include "Session.hpp"
@@ -121,7 +122,7 @@ namespace
       auto mod = Loader::get()->getInstalledMod(parts[0]);
       data.mods.push_back({parts[0], mod ? std::string(mod->getName()) : parts[0], parts[1]});
     }
-    data.logTail = logTail(std::filesystem::path(utils::string::utf8ToWide(previous.header.logPath)), 15);
+    data.logTail = logTail(std::filesystem::path(utils::string::utf8ToWide(previous.header.logPath)), 40);
     data.crashlog = findCrashlog(previous.header.startTime);
     if (!data.crumbs.empty())
       data.sessionSeconds = data.crumbs.back().millis / 1000.0;
@@ -158,6 +159,7 @@ namespace
     (void)file::writeString(guardPath(), "");
     auto data = buildReport(*s_previous);
     s_previous.reset();
+    logger_link::markReport();
     log::info("The last session crashed: {}", report::describe(data, report::Language::English).title);
     log::info("crash-doctor-result {}", report::resultLine(data));
     std::vector<std::string> frames;
@@ -218,6 +220,7 @@ $on_mod(Loaded)
   crumbs::attach(s_session);
   crumbs::add("game started");
   capture::install(s_session);
+  logger_link::setup();
   log::debug("Watching for crashes, session file {}", path);
 }
 
