@@ -43,3 +43,41 @@ Start: **Sun Oct 11 14:44:25 2026** (the first `date` of the run). Budget: 8 hou
 - 16:08 backlog 3: the log by mod in the report (works without Improved Logger), and with Improved Logger the last
   actions pinned in its console (`watch`) and a marker before the report. Checked: "Improved Logger is here".
 - 16:12 the five kinds again on the new code: all right (diagnosis, testbed, line, Geode's crashlog, no crash).
+- 16:18 v0.2.0 released (pre-release). Zhulis Mods Manager fetched Crash Doctor's releases (its cache has
+  `ZhulinskiiDanil_crash-doctor.json`).
+- 16:19 the cost in a normal session (backlog 7): Mod Profiler's "game's start" line doesn't list Crash Doctor
+  among the mods over 0.07 s; in a start that made a report it was 0.25 s (DbgHelp, on the main thread, once after
+  a crash). Building the window is one slow frame of 60-75 ms (TTF labels rendered once).
+- 16:20 backlog 6: README in English and Russian with screenshots, about.md. **Copy report** checked with a real click
+  and the clipboard read back: the diagnosis, the line, the stack, the code, the crumbs, versions, no user name.
+- 16:24 the report's guard checked: a crash, then the testbed crashing while the report is on screen, then a start.
+- 16:25 a code review by a separate reviewer agent (backlog 7), read-only. 1 critical, 10 important, 8 minor; all
+  fixed except where noted below:
+  - critical: any mod frame anywhere on the stack was blamed, e.g. a mod hooking `PlayLayer::init` for a crash in
+    the game's own code. Now a mod is blamed only when no hook handler is between it and the crash.
+  - hook recursion matched the method name alone: now the class must be the hooked one's family (`MyMenuLayer` for
+    `MenuLayer`, or Geode's own `hookNN` name).
+  - "UI from another thread" fired for any cocos frame: now the cocos frame must be named and be UI (not
+    `CCFileUtils`, `CCImage`, `ZipUtils`...: image loaders decode on worker threads legitimately).
+  - use after free: a call landing on 0 through a table in no module is a heap struct's null callback, so it's the
+    null pointer's now; a table in a module must be in its read-only data (read from the file's section headers).
+  - `what()` was called at the crash: now nothing is called, the standard exceptions' text is read where it is.
+  - the pure call flag could stay set if caught: now only the exception code counts.
+  - DbgHelp's process-wide options are restored after the report; PDB signatures compared, not only timestamps.
+  - the guard stayed up for the whole session if the menu left before 3 s: now it's only up while the report is
+    built and while its window is made and first drawn. Also refined after the live check: only a crash with
+    Crash Doctor's own DLL on its stack is skipped; another mod's crash during the report is reported.
+  - `callerSize` not validated in a damaged file; the user profile read in the ANSI code page (a Cyrillic user name
+    wasn't scrubbed): both fixed, with a test.
+  - keys: only keys that never type text are named (F-keys, arrows, Esc...), anything else only with Ctrl and not
+    with Ctrl+Alt (AltGr); typing is one "typing" crumb, not counted (no password length).
+  - minor ones fixed: a second crashing thread waits up to 2 s for the first one's record; a cap on the module
+    list walk; `tellg` failure. The stack guarantee went from 128 to 64 KB (GD's main thread has 1 MB): checked
+    that Geode's crashlog of the hook recursion is still complete (20 233 frames and the mods list).
+- 16:36 and 16:45 two starts (of ~50 in the checks) hung while the game loaded: the log stops after "Entry took",
+  Mod Profiler's line with ~450 scanned samples is the last. Not reproduced in 10 plain starts (0 of 10). It's at
+  the moment `LoadingLayer` is pushed, which was Crash Doctor's first crumb and its first `watch` into Improved
+  Logger. Not proven to be Crash Doctor's, but now nothing goes to Improved Logger before the game has loaded, and
+  then only from the scheduler, twice a second at most. Also: Crash Doctor now checks every 2 s that its crash
+  filter is still in front (another mod's could replace it); none did in the checks.
+- 16:55 all 8 testbed kinds right again after the review fixes.

@@ -26,3 +26,11 @@ endif()
 
 add_executable(history-tests HistoryTests.cpp ../src/History.cpp)
 add_test(NAME history COMMAND history-tests)
+
+# A damaged session file through reading, symbols, the analysis and the report: Windows only (DbgHelp)
+if (WIN32)
+    add_executable(session-tests SessionTests.cpp ../src/Session.cpp ../src/Symbols.cpp ../src/Analysis.cpp
+        ../src/Decode.cpp ../src/Report.cpp ../src/Crumbs.cpp ../src/History.cpp)
+    target_link_libraries(session-tests dbghelp)
+    add_test(NAME session COMMAND session-tests)
+endif()
