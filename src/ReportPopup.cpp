@@ -22,10 +22,11 @@ namespace
   ccColor3B const DIM = {190, 200, 220};
   ccColor3B const SECTION = {120, 200, 255};
 
+  // UTF-8, like the report: the ANSI code page's version would miss a Cyrillic user name
   std::string profileFolder()
   {
-    auto profile = std::getenv("USERPROFILE");
-    return profile ? profile : "";
+    auto profile = _wgetenv(L"USERPROFILE");
+    return profile ? utils::string::wideToUtf8(profile) : "";
   }
 } // namespace
 

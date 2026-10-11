@@ -6,7 +6,9 @@
 #include <Windows.h>
 #include <DbgHelp.h>
 
+#include <cstddef>
 #include <cstring>
+#include <fstream>
 #include <set>
 
 namespace
@@ -35,15 +37,43 @@ namespace
       return false;
     IMAGEHLP_MODULEW64 info{};
     info.SizeOfStruct = sizeof(info);
-    if (!SymGetModuleInfoW64(SESSION, module.base, &info))
-      return true;
-    // A mod updated since the crash: its names would point at the wrong lines
-    if (module.timestamp && info.TimeDateStamp && info.TimeDateStamp != module.timestamp)
+    // A mod updated since the crash (another timestamp, another PDB): its names would point at the wrong lines
+    static uint8_t const noGuid[16] = {};
+    bool same = SymGetModuleInfoW64(SESSION, module.base, &info) &&
+                (!module.timestamp || !info.TimeDateStamp || info.TimeDateStamp == module.timestamp) &&
+                (std::memcmp(module.pdbGuid, noGuid, 16) == 0 || info.SymType != SymPdb ||
+                 (std::memcmp(&info.PdbSig70, module.pdbGuid, 16) == 0 && info.PdbAge == module.pdbAge));
+    if (!same)
     {
       SymUnloadModule64(SESSION, module.base);
       return false;
     }
     return true;
+  }
+
+  // The read-only data sections of a module's file (where its vtables are), from its section headers
+  std::vector<std::pair<uint32_t, uint32_t>> readOnlyData(wchar_t const* path)
+  {
+    std::vector<std::pair<uint32_t, uint32_t>> ranges;
+    std::ifstream file(path, std::ios::binary);
+    IMAGE_DOS_HEADER dos{};
+    if (!file.read(reinterpret_cast<char*>(&dos), sizeof(dos)) || dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew <= 0)
+      return ranges;
+    IMAGE_NT_HEADERS64 nt{};
+    file.seekg(dos.e_lfanew);
+    if (!file.read(reinterpret_cast<char*>(&nt), sizeof(nt)) || nt.Signature != IMAGE_NT_SIGNATURE)
+      return ranges;
+    file.seekg(dos.e_lfanew + offsetof(IMAGE_NT_HEADERS64, OptionalHeader) + nt.FileHeader.SizeOfOptionalHeader);
+    for (WORD i = 0; i < nt.FileHeader.NumberOfSections && i < 96; i++)
+    {
+      IMAGE_SECTION_HEADER section{};
+      if (!file.read(reinterpret_cast<char*>(&section), sizeof(section)))
+        break;
+      auto flags = section.Characteristics;
+      if ((flags & IMAGE_SCN_MEM_READ) && !(flags & IMAGE_SCN_MEM_WRITE) && !(flags & IMAGE_SCN_MEM_EXECUTE))
+        ranges.push_back({section.VirtualAddress, section.VirtualAddress + section.Misc.VirtualSize});
+    }
+    return ranges;
   }
 
   void name(analysis::Frame& frame, bool top)
@@ -84,7 +114,6 @@ analysis::Crash symbols::load(session::CrashRecord const& record, size_t named)
   crash.address = record.address;
   crash.parameters.assign(record.parameters, record.parameters + record.parameterCount);
   crash.mainThread = record.threadId == record.mainThread;
-  crash.pureCall = record.pureCall != 0;
   std::memcpy(crash.registers, record.registers, sizeof(crash.registers));
   crash.codeStart = record.codeStart;
   crash.codeBytes.assign(record.codeBytes, record.codeBytes + record.codeSize);
@@ -101,6 +130,7 @@ analysis::Crash symbols::load(session::CrashRecord const& record, size_t named)
     module.kind = analysis::classify(module.path, module.modId);
     module.base = source.base;
     module.size = source.size;
+    module.readOnlyData = readOnlyData(reinterpret_cast<wchar_t const*>(source.path));
     crash.modules.push_back(std::move(module));
   }
   for (uint32_t i = 0; i < record.frameCount; i++)
@@ -129,9 +159,19 @@ analysis::Crash symbols::load(session::CrashRecord const& record, size_t named)
       searchPath += L';';
     searchPath += folderOf(reinterpret_cast<wchar_t const*>(record.modules[index].path));
   }
+  // The options are DbgHelp's for the whole process (Geode's crash handler uses them too): back as they were after
+  struct Options
+  {
+    DWORD saved = SymGetOptions();
+    ~Options() { SymSetOptions(saved); }
+  } options;
   SymSetOptions(SYMOPT_UNDNAME | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS);
   if (!SymInitializeW(SESSION, searchPath.c_str(), FALSE))
     return crash;
+  struct Session
+  {
+    ~Session() { SymCleanup(SESSION); }
+  } session;
   std::set<int> loaded;
   for (auto index : wanted)
     if (loadModule(record.modules[index]))
@@ -139,7 +179,6 @@ analysis::Crash symbols::load(session::CrashRecord const& record, size_t named)
   for (size_t i = 0; i < crash.frames.size() && i < named; i++)
     if (loaded.count(crash.frames[i].module))
       name(crash.frames[i], i == 0);
-  // Every PDB let go: a mod rebuilt while the game runs can write its own
-  SymCleanup(SESSION);
+  // Every PDB let go when `session` goes: a mod rebuilt while the game runs can write its own
   return crash;
 }

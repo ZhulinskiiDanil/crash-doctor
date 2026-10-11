@@ -6,6 +6,8 @@
 #include <Windows.h>
 
 #include <cstring>
+#include <cwctype>
+#include <string>
 #include <fstream>
 
 bool session::isValid(File const& file)
@@ -13,7 +15,30 @@ bool session::isValid(File const& file)
   return std::memcmp(file.header.magic, MAGIC, sizeof(MAGIC)) == 0 && file.header.version == VERSION &&
          file.crash.frameCount <= MAX_FRAMES && file.crash.moduleCount <= MAX_MODULES &&
          file.crash.stackSize <= STACK_BYTES && file.crash.codeSize <= CODE_BYTES &&
-         file.crash.parameterCount <= 15;
+         file.crash.parameterCount <= 15 && file.crash.callerSize <= sizeof(file.crash.callerBytes);
+}
+
+bool session::involves(File const& file, std::string_view modId)
+{
+  // "\<id>\" in the module's path, case aside (the unpacked folder is the ID)
+  std::wstring needle = L"\\";
+  for (auto c : modId)
+    needle += static_cast<wchar_t>(std::towlower(static_cast<unsigned char>(c)));
+  needle += L"\\";
+  auto const& crash = file.crash;
+  for (uint32_t i = 0; i < crash.frameCount && i < 24; i++)
+  {
+    auto index = crash.frames[i].module;
+    if (index < 0 || static_cast<uint32_t>(index) >= crash.moduleCount)
+      continue;
+    std::wstring path(reinterpret_cast<wchar_t const*>(crash.modules[index].path),
+                      wcsnlen(reinterpret_cast<wchar_t const*>(crash.modules[index].path), PATH_CHARS));
+    for (auto& c : path)
+      c = static_cast<wchar_t>(std::towlower(c));
+    if (path.find(needle) != std::wstring::npos)
+      return true;
+  }
+  return false;
 }
 
 std::unique_ptr<session::File> session::takePreviousCrash(std::filesystem::path const& path)

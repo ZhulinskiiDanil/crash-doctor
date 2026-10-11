@@ -37,6 +37,8 @@ namespace analysis
     std::string modId;
     uint64_t base = 0;
     uint32_t size = 0;
+    // Its read-only data sections (begin, end RVAs): where vtables are. Empty when the file couldn't be read
+    std::vector<std::pair<uint32_t, uint32_t>> readOnlyData;
   };
 
   struct Frame
@@ -58,7 +60,6 @@ namespace analysis
     uint64_t address = 0;
     std::vector<uint64_t> parameters;
     bool mainThread = true;
-    bool pureCall = false;
     uint64_t registers[18] = {};
     // The bytes around RIP, from codeStart
     uint64_t codeStart = 0;

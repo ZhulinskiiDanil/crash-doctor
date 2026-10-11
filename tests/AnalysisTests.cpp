@@ -164,6 +164,16 @@ int main()
     diagnosis = diagnose(crash);
     CHECK(diagnosis.kind == Kind::HookRecursion);
     CHECK(diagnosis.hook == "MenuLayer::onMoreGames");
+
+    // A $modify Geode named itself (no name given) counts too
+    for (auto& frame : crash.frames)
+      frame.function = "`anonymous namespace'::hook12::onMoreGames";
+    CHECK(diagnose(crash).kind == Kind::HookRecursion);
+
+    // The same method name in a class that isn't the hooked one's: a plain recursion
+    for (auto& frame : crash.frames)
+      frame.function = "Physics::onMoreGames";
+    CHECK(diagnose(crash).kind == Kind::Recursion);
   }
   {
     // A deep stack of different functions: a stack overflow, but not a recursion anyone can point at
@@ -214,15 +224,19 @@ int main()
     CHECK(diagnosis.frame == 1);
 
 
-    // Landing on 0 through a broken table is still a deleted object, not a null pointer
+    // Landing on 0 through a table in no module: a heap struct's callback left null, the null pointer's
     crash.frames[0].address = 0;
     crash.registers[16] = 0;
     crash.parameters = {8, 0};
-    CHECK(diagnose(crash).kind == Kind::UseAfterFree);
-    // Through a table in a module whose slot is 0: past the end of a base class' vtable, a destroyed object
+    CHECK(diagnose(crash).kind == Kind::NullPointer);
+    // Through a table in a module's read-only data whose slot is 0: past the end of a base class' vtable
+    crash.modules[M_TESTBED].readOnlyData = {{0x8000, 0x9000}};
     crash.registers[0] = TESTBED + 0x8000;
     CHECK(diagnose(crash).kind == Kind::UseAfterFree);
     CHECK(diagnose(crash).evidence.find("left by a destructor") != std::string::npos);
+    // In a module but in writable data: a global struct of callbacks, not a vtable
+    crash.registers[0] = TESTBED + 0xA000;
+    CHECK(diagnose(crash).kind != Kind::UseAfterFree);
     crash.registers[0] = 0x2000000;
     crash.registers[16] = 0x4141414141410000;
     crash.parameters = {8, 0x4141414141410000};
@@ -247,8 +261,8 @@ int main()
     crash.mainThread = false;
     crash.frames = {
         frame(M_NTDLL, NTDLL, 0x500, 0x400),
-        frame(M_COCOS, COCOS, 0x100, 0x80),
-        frame(M_COCOS, COCOS, 0x200, 0x180),
+        frame(M_COCOS, COCOS, 0x100, 0x80, "cocos2d::CCNode::insertChild"),
+        frame(M_COCOS, COCOS, 0x200, 0x180, "cocos2d::CCNode::addChild"),
         frame(M_OTHER, OTHER_MOD, 0x900, 0x800, "OtherLabel::create"),
         frame(-1, 0x30000000, 0, 0),
         frame(M_TESTBED, TESTBED, 0x4100, 0x4000, "workerThread"),
@@ -259,6 +273,13 @@ int main()
     // The testbed's call, not the other mod's hook in between
     CHECK(diagnosis.culprit == "zhulis.crash-doctor-testbed");
     CHECK(diagnosis.frame == 5);
+
+    // cocos' file and image helpers are fine on any thread, and an unnamed frame proves nothing
+    crash.frames[1].function = "cocos2d::CCFileUtils::getFileData";
+    CHECK(diagnose(crash).kind != Kind::WrongThread);
+    crash.frames[1].function = "";
+    CHECK(diagnose(crash).kind != Kind::WrongThread);
+    crash.frames[1].function = "cocos2d::CCNode::insertChild";
 
     // The same on the main thread is a null pointer, blamed on the topmost mod
     crash.mainThread = true;
@@ -278,7 +299,6 @@ int main()
   {
     auto crash = baseCrash();
     crash.code = PURECALL;
-    crash.pureCall = true;
     crash.frames = {
         frame(M_NTDLL, NTDLL, 0x900, 0x800),
         frame(M_SELF, SELF, 0x100, 0x80, "`anonymous namespace'::onPureCall"),
@@ -317,7 +337,8 @@ int main()
     CHECK(diagnose(crash).culprit == "zhulis.crash-doctor");
   }
   {
-    // Crash Doctor's breadcrumb hook passing a button's call on: the game crashed under it, not its fault
+    // The game's code crashed, a hook's handler below it, a mod's hook below that: the mod only passed the call
+    // on (or called a hooked function), it isn't blamed. Crash Doctor's breadcrumb hooks are like that
     auto crash = accessViolation(0x20);
     crash.frames = {
         frame(M_GAME, GAME, 0x100, 0x80),
@@ -326,10 +347,12 @@ int main()
         frame(-1, 0x20000000, 0, 0),
         frame(M_TESTBED, TESTBED, 0x700, 0x680, "press"),
     };
-    CHECK(diagnose(crash).culprit == "zhulis.crash-doctor-testbed");
-    // Without the testbed below it: no mod to blame, no guess
-    crash.frames.pop_back();
     CHECK(diagnose(crash).kind == Kind::Unknown);
+    crash.frames[2] = frame(M_OTHER, OTHER_MOD, 0x300, 0x280, "MyPlayLayer::init");
+    CHECK(diagnose(crash).kind == Kind::Unknown);
+    // With no handler between, the mod's frame right below the game's is the one that called it
+    crash.frames.erase(crash.frames.begin() + 1);
+    CHECK(diagnose(crash).culprit == "someone.other");
   }
   {
     // Anything else: no guess

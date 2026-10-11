@@ -59,6 +59,13 @@ void crumbs::add(char const* format, ...)
     s_listener(slot.text);
 }
 
+void crumbs::addUncounted(char const* text)
+{
+  if (s_next && std::strcmp(text, s_last) == 0)
+    return;
+  add("%s", text);
+}
+
 std::vector<crumbs::Crumb> crumbs::read(session::File const& file)
 {
   std::vector<Crumb> result;

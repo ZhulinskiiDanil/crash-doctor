@@ -142,6 +142,8 @@ int main()
   CHECK(scrub(R"(c:\users\player\a.txt and C:/Users/Player/b.txt)", R"(C:\Users\Player)") ==
         R"(%USERPROFILE%\a.txt and %USERPROFILE%/b.txt)");
   CHECK(scrub(R"(D:\Users\Player\x)", R"(C:\Users\Player)") == R"(D:\Users\%USERNAME%\x)");
+  // A Cyrillic user name: the profile comes as UTF-8 like the report
+  CHECK(scrub(R"(C:\Users\Игрок\GD\x.cpp)", R"(C:\Users\Игрок)") == R"(%USERPROFILE%\GD\x.cpp)");
   CHECK(scrub("nothing here", R"(C:\Users\Player)") == "nothing here");
   CHECK(scrub("short", "") == "short");
 

@@ -34,16 +34,39 @@ namespace
     return colons == std::string::npos ? name : name.substr(colons + 2);
   }
 
-  // A key's name, unless it types text: letters and digits are only named with Ctrl or Alt held, so a
-  // password typed in the game never ends up in a copied report
+  // Keys that never type text: these are named
+  bool isControlKey(enumKeyCodes key)
+  {
+    switch (key)
+    {
+    case KEY_Escape:
+    case KEY_Enter:
+    case KEY_Tab:
+    case KEY_Backspace:
+    case KEY_Delete:
+    case KEY_Insert:
+    case KEY_Home:
+    case KEY_End:
+    case KEY_PageUp:
+    case KEY_PageDown:
+    case KEY_Left:
+    case KEY_Right:
+    case KEY_Up:
+    case KEY_Down:
+      return true;
+    default:
+      return key >= KEY_F1 && key <= KEY_F12;
+    }
+  }
+
+  // A key's name, or empty when it may type text: only keys that never do are named, and the rest only with
+  // Ctrl held (a shortcut). Ctrl+Alt is AltGr, which types characters. So a password typed in the game never
+  // ends up in a copied report, not its letters, its punctuation or its length
   std::string keyName(enumKeyCodes key, CCKeyboardDispatcher* dispatcher)
   {
     bool control = dispatcher->getControlKeyPressed();
     bool alt = dispatcher->getAltKeyPressed();
-    bool text = (key >= KEY_A && key <= KEY_Z) || (key >= KEY_Zero && key <= KEY_Nine) ||
-                (key >= KEY_NumPad0 && key <= KEY_NumPad9) || key == KEY_Space || key == KEY_OEMComma ||
-                key == KEY_OEMPeriod || key == KEY_OEMMinus || key == KEY_OEMPlus;
-    if (text && !control && !alt)
+    if (!isControlKey(key) && (!control || alt))
       return "";
     std::string name = control ? "Ctrl+" : "";
     if (alt)
@@ -109,7 +132,7 @@ class $modify(CrumbKeyboard, CCKeyboardDispatcher)
     {
       auto name = keyName(key, this);
       if (name.empty())
-        crumbs::add("key (text)");
+        crumbs::addUncounted("typing");
       else
         crumbs::add("key %s", name.c_str());
     }

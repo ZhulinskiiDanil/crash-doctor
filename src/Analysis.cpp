@@ -51,23 +51,40 @@ namespace
 
   // The topmost frame in a mod's code. Crash Doctor's own frames are skipped when it raised the
   // exception itself (a pure virtual call goes through its handler)
-  // Its breadcrumb hooks are on the way of every button and scene: a frame of Crash Doctor that called on
-  // through a hook's handler (generated code, no module) only passed the call on
-  bool isSelfPassingOn(Crash const& crash, size_t index)
-  {
-    auto const& frame = crash.frames[index];
-    if (kindOf(crash, frame) != ModuleKind::Mod || modOf(crash, frame) != crash.selfId || index == 0)
-      return false;
-    return crash.frames[index - 1].module < 0;
-  }
-
+  // The topmost frame in a mod's code, when no hook's handler is between it and the crash. A mod frame below
+  // a handler only called a hooked function, or passed a call on to the original: what crashed above it may be
+  // the game's own code or another mod's hook, so nobody is blamed. Crash Doctor's own frames are skipped when
+  // it raised the exception itself (a pure virtual call goes through its handler)
   int firstModFrame(Crash const& crash, size_t from = 0)
   {
-    auto self = crash.pureCall || crash.code == PURECALL;
+    auto self = crash.code == PURECALL;
     for (auto i = from; i < crash.frames.size(); i++)
-      if (isMod(crash, crash.frames[i], self) && !isSelfPassingOn(crash, i))
+    {
+      auto const& frame = crash.frames[i];
+      if (isMod(crash, frame, self))
         return static_cast<int>(i);
+      // Generated code below the top frame: a hook's handler (at the top it's where a broken call landed)
+      if (i > 0 && frame.module < 0)
+        return -1;
+    }
     return -1;
+  }
+
+  Module const* moduleOf(Crash const& crash, uint64_t address)
+  {
+    for (auto const& module : crash.modules)
+      if (address >= module.base && address - module.base < module.size)
+        return &module;
+    return nullptr;
+  }
+
+  bool inReadOnlyData(Module const& module, uint64_t address)
+  {
+    auto rva = address - module.base;
+    for (auto const& [begin, end] : module.readOnlyData)
+      if (rva >= begin && rva < end)
+        return true;
+    return false;
   }
 
   bool inModule(Crash const& crash, uint64_t address)
@@ -113,6 +130,33 @@ namespace
 
   // The hook the frame is in: its function has the name of a hooked method of the same mod, and it was
   // called by generated code (a hook's handler isn't in any module)
+  // The class of "ns::Class::method(args)", without its namespaces
+  std::string_view className(std::string_view function)
+  {
+    auto end = function.find('(');
+    if (end != std::string_view::npos)
+      function = function.substr(0, end);
+    auto colons = function.rfind("::");
+    if (colons == std::string_view::npos)
+      return {};
+    function = function.substr(0, colons);
+    colons = function.rfind("::");
+    return colons == std::string_view::npos ? function : function.substr(colons + 2);
+  }
+
+  // Whether a function can be a $modify of the hooked class: its class is named after it ("MyMenuLayer" for
+  // "MenuLayer::init"), or it's one Geode named itself ("hook123" for a $modify without a name)
+  bool sameFamily(std::string_view function, std::string_view hook)
+  {
+    auto own = className(function);
+    auto hooked = className(hook);
+    if (own.empty() || hooked.empty())
+      return false;
+    if (own.find(hooked) != std::string_view::npos)
+      return true;
+    return own.size() > 4 && own.starts_with("hook") && own[4] >= '0' && own[4] <= '9';
+  }
+
   std::string hookOf(Crash const& crash, int index, bool requireHandler)
   {
     if (index < 0)
@@ -131,7 +175,7 @@ namespace
     }
     auto method = methodName(frame.function);
     for (auto const& hook : found->second)
-      if (!method.empty() && methodName(hook) == method)
+      if (!method.empty() && methodName(hook) == method && sameFamily(frame.function, hook))
         return hook;
     return {};
   }
@@ -182,6 +226,17 @@ namespace
     return true;
   }
 
+  bool isUiFunction(std::string_view function)
+  {
+    if (!function.starts_with("cocos2d::CC"))
+      return false;
+    for (std::string_view helper : {"cocos2d::CCFileUtils", "cocos2d::CCImage", "cocos2d::ZipUtils", "cocos2d::CCSAXParser",
+                                    "cocos2d::CCString", "cocos2d::CCData", "cocos2d::CCConfiguration", "cocos2d::CCThread"})
+      if (function.starts_with(helper))
+        return false;
+    return true;
+  }
+
   // A crash below cocos (or the game's UI code) on a thread a mod runs: the mod used the UI off the main thread
   bool diagnoseThread(Crash const& crash, Diagnosis& diagnosis)
   {
@@ -197,17 +252,16 @@ namespace
       }
     if (owner < 0)
       return false;
+    // The topmost cocos frame, which must be named and be UI: cocos' file, image and zip helpers are fine on
+    // any thread (image loaders decode on worker threads), and an unnamed frame proves nothing
     int ui = -1;
     for (int i = 0; i < owner; i++)
-    {
-      auto kind = kindOf(crash, crash.frames[i]);
-      if (kind == ModuleKind::Cocos || kind == ModuleKind::Game)
+      if (kindOf(crash, crash.frames[i]) == ModuleKind::Cocos)
       {
         ui = i;
         break;
       }
-    }
-    if (ui < 0)
+    if (ui < 0 || !isUiFunction(crash.frames[ui].function))
       return false;
     // The owner's frame that called into it, past other mods' hooks in between
     auto const& ownerId = modOf(crash, crash.frames[owner]);
@@ -240,7 +294,15 @@ namespace
         continue;
       // A live object's vtable slot always points at code. Landing outside code means the table isn't one
       // (the object's memory holds other data), or the slot is past the end of a shorter table: a base
-      // class' table, which is what a destructor leaves in the object
+      // class' table, which is what a destructor leaves in the object. Not claimed for a table in a module
+      // outside its read-only data (a global struct of callbacks), nor for a landing on null through a
+      // table in no module (a heap struct's callback left null): those are the null pointer's
+      auto table = crash.registers[call.base];
+      auto module = moduleOf(crash, table);
+      if (module && !inReadOnlyData(*module, table))
+        return -1;
+      if (!module && rip < NULL_AREA)
+        return -1;
       return call.base;
     }
     return -1;
@@ -394,7 +456,7 @@ Diagnosis analysis::diagnose(Crash const& crash)
   Diagnosis diagnosis;
   auto access = accessOf(crash);
 
-  if (crash.pureCall || crash.code == PURECALL)
+  if (crash.code == PURECALL)
   {
     diagnosis.kind = Kind::PureVirtual;
     diagnosis.evidence = "the C runtime's _purecall was called";

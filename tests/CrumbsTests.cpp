@@ -41,6 +41,11 @@ int main()
     CHECK(list.back().text == "key (text) (x3)");
     CHECK(list[list.size() - 2].text == "key 39");
   }
+  // Typing is one crumb however long it goes: not even a password's length is kept
+  crumbs::addUncounted("typing");
+  crumbs::addUncounted("typing");
+  crumbs::addUncounted("typing");
+  CHECK(crumbs::read(*file).back().text == "typing");
   crumbs::add("key Escape");
   CHECK(crumbs::read(*file).back().text == "key Escape");
 

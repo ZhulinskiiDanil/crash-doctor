@@ -19,6 +19,10 @@ namespace crumbs
   // A crumb, printf-style. Main thread only (all the hooks that leave crumbs run there)
   void add(char const* format, ...);
 
+  // A crumb that isn't counted when it comes again in a row: once for a whole run of it ("typing", not how
+  // many keys)
+  void addUncounted(char const* text);
+
   struct Crumb
   {
     uint64_t sequence;

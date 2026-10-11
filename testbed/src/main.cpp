@@ -103,6 +103,15 @@ class $modify(TestbedMenuLayer, MenuLayer)
     }
     // Timed from a thread, not the layer's scheduler: the settings the buttons open pause the menu
     Ref<TestbedMenuLayer> layer = this;
+    // While Crash Doctor's report of the last crash is on screen: a crash in the middle of it
+    if (s_kind == "during-report")
+    {
+      std::thread([layer] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        queueInMainThread([layer] { layer->crashNull(); });
+      }).detach();
+      return true;
+    }
     std::thread([layer] {
       std::this_thread::sleep_for(std::chrono::milliseconds(1500));
       queueInMainThread([layer] { layer->onPressButtons(0.f); });

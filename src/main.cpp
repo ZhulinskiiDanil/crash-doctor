@@ -32,6 +32,12 @@ namespace
 
   std::filesystem::path guardPath() { return Mod::get()->getSaveDir() / "report-open"; }
 
+  void removeGuard()
+  {
+    std::error_code error;
+    std::filesystem::remove(guardPath(), error);
+  }
+
   void copyText(char* to, size_t capacity, std::string_view from)
   {
     auto size = std::min(from.size(), capacity - 1);
@@ -59,6 +65,8 @@ namespace
       return lines;
     stream.seekg(0, std::ios::end);
     auto size = static_cast<int64_t>(stream.tellg());
+    if (size <= 0)
+      return lines;
     auto start = std::max<int64_t>(0, size - 64 * 1024);
     stream.seekg(start);
     std::string text(static_cast<size_t>(size - start), '\0');
@@ -150,15 +158,17 @@ namespace
       return;
     if (s_reportCrashed)
     {
-      log::warn("The last session crashed while Crash Doctor made or showed its report: no report this time");
+      log::warn("The last session crashed in Crash Doctor's code while it made or showed its report: no report this time");
       s_previous.reset();
       return;
     }
 
-    // The guard is up while the report is made and shown: a crash in between won't loop
+    // The guard is up while the report is made, and again while its window is made and first drawn: a crash
+    // of Crash Doctor's in between won't loop. Down otherwise, so a later crash of the session is reported
     (void)file::writeString(guardPath(), "");
     auto data = buildReport(*s_previous);
     s_previous.reset();
+    removeGuard();
     logger_link::markReport();
     log::info("The last session crashed: {}", report::describe(data, report::Language::English).title);
     log::info("crash-doctor-result {}", report::resultLine(data));
@@ -170,11 +180,7 @@ namespace
       log::info("crash-doctor-crumb {}", line);
     s_report = std::move(data);
     if (!Mod::get()->getSettingValue<bool>("show-report"))
-    {
-      std::error_code error;
-      std::filesystem::remove(guardPath(), error);
       s_reportShown = true;
-    }
   }
 
   void showReport()
@@ -185,8 +191,11 @@ namespace
     // In detail for a developer (the mod's PDB is on this computer) or when asked; short for a player
     auto detail = Mod::get()->getSettingValue<std::string>("report-detail");
     bool detailed = detail == "Always detailed" || (detail != "Always short" && report::hasSymbols(*s_report));
+    (void)file::writeString(guardPath(), "");
     if (auto popup = ReportPopup::create(*s_report, language(), detailed))
       popup->show();
+    // Down after its first frame is drawn
+    Loader::get()->queueInMainThread([] { Loader::get()->queueInMainThread([] { removeGuard(); }); });
   }
 } // namespace
 
@@ -202,7 +211,8 @@ $on_mod(Loaded)
   std::error_code error;
   if (std::filesystem::exists(guardPath(), error))
   {
-    s_reportCrashed = s_previous != nullptr;
+    // Only when Crash Doctor's own code was on the crash's stack: another mod crashing meanwhile is reported
+    s_reportCrashed = s_previous && session::involves(*s_previous, Mod::get()->getID());
     std::filesystem::remove(guardPath(), error);
   }
 
@@ -224,6 +234,30 @@ $on_mod(Loaded)
   log::debug("Watching for crashes, session file {}", path);
 }
 
+// ! --- Staying first --- !
+
+namespace
+{
+  // Every 2 s: a mod that sets its own crash filter after Crash Doctor's would leave it out
+  class FilterWatch : public CCObject
+  {
+  public:
+    void check(float)
+    {
+      auto filter = capture::reclaim();
+      if (!filter)
+        return;
+      HMODULE module = nullptr;
+      wchar_t path[MAX_PATH] = L"?";
+      if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                             static_cast<LPCWSTR>(filter), &module))
+        GetModuleFileNameW(module, path, MAX_PATH);
+      log::warn("A crash filter from {} went in front of Crash Doctor's: back in front, it's called next",
+                utils::string::wideToUtf8(path));
+    }
+  };
+} // namespace
+
 $on_game(Loaded)
 {
   if (s_session)
@@ -235,6 +269,8 @@ $on_game(Loaded)
         mods += fmt::format("{}\t{}\n", mod->getID(), mod->getVersion().toVString());
     copyText(s_session->header.mods, sizeof(s_session->header.mods), mods);
     crumbs::add("game loaded");
+    CCScheduler::get()->scheduleSelector(schedule_selector(FilterWatch::check), new FilterWatch(), 2.f, false);
+    logger_link::gameLoaded();
   }
 
   makeReport();
@@ -258,12 +294,5 @@ class $modify(ReportMenuLayer, MenuLayer)
   void onShowReport(float)
   {
     showReport();
-    this->scheduleOnce(schedule_selector(ReportMenuLayer::onReportShown), 3.f);
-  }
-
-  void onReportShown(float)
-  {
-    std::error_code error;
-    std::filesystem::remove(guardPath(), error);
   }
 };

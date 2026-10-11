@@ -6,6 +6,9 @@ namespace logger_link
 {
   void setup();
 
+  // From now on the last actions go to its console, twice a second at most
+  void gameLoaded();
+
   // A marker line in its console, before the crash's report in the log
   void markReport();
 } // namespace logger_link

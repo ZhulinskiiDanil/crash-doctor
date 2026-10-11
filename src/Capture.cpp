@@ -21,15 +21,20 @@ namespace
   session::File* s_file = nullptr;
   LPTOP_LEVEL_EXCEPTION_FILTER s_previous = nullptr;
   _purecall_handler s_previousPurecall = nullptr;
+  // The filter there when Crash Doctor's was installed: Geode's
+  LPTOP_LEVEL_EXCEPTION_FILTER s_original = nullptr;
+  // The thread calling the next filter, to know a call back into this one
+  std::atomic<DWORD> s_passingOn{0};
   // The first crashing thread writes the record; another one crashing meanwhile goes straight on
   std::atomic<uint32_t> s_capturing{0};
-  std::atomic<uint32_t> s_pureCall{0};
+  // Set once the first crashing thread's record is complete
+  std::atomic<uint32_t> s_captured{0};
   // The context being unwound: 1232 bytes kept off the stack, which may be nearly gone
   CONTEXT s_walk;
 
   // How much stack a handler of a stack overflow gets on the main thread. Geode's crash handler
   // runs after this one on the same stack, with DbgHelp: it needs room too
-  constexpr ULONG STACK_GUARANTEE = 128 * 1024;
+  constexpr ULONG STACK_GUARANTEE = 64 * 1024;
   // How far the walk looks for the next return address when unwinding can't go on
   constexpr size_t SCAN_SLOTS = 512;
   constexpr uint32_t MAX_SCANS = 16;
@@ -123,7 +128,10 @@ namespace
     {
       auto data = loaderData();
       auto head = &data->inLoadOrder;
-      for (auto link = head->Flink; link && link != head && record.moduleCount < session::MAX_MODULES; link = link->Flink)
+      // The cap on steps, not only on modules: a broken list could go round without ever adding one
+      int steps = 0;
+      for (auto link = head->Flink; link && link != head && record.moduleCount < session::MAX_MODULES && steps < 4096;
+           link = link->Flink, steps++)
       {
         auto entry = CONTAINING_RECORD(link, LoaderEntry, inLoadOrder);
         if (!entry->base || !entry->size)
@@ -389,6 +397,13 @@ namespace
     }
   }
 
+  bool endsWith(char const* text, char const* end)
+  {
+    auto length = std::strlen(text);
+    auto endLength = std::strlen(end);
+    return length >= endLength && std::strcmp(text + length - endLength, end) == 0;
+  }
+
   void copyText(char* to, size_t capacity, char const* from)
   {
     size_t i = 0;
@@ -423,12 +438,17 @@ namespace
           copyText(record.cppType, sizeof(record.cppType), name);
         if (std::strcmp(name, ".?AVexception@std@@") == 0 && object)
         {
+          // A virtual base (its pdisp isn't -1) is somewhere else: not read
           auto displacement = *reinterpret_cast<int32_t const*>(catchable + 8);
+          auto virtualBase = *reinterpret_cast<int32_t const*>(catchable + 12);
+          if (virtualBase != -1)
+            continue;
           auto base = object + displacement;
-          // std::exception's vtable: the deleting destructor, then what()
-          auto vtable = *reinterpret_cast<uint64_t const* const*>(base);
-          auto what = reinterpret_cast<char const* (*)(uint64_t)>(vtable[1]);
-          auto text = what(base);
+          // Nothing is called at the crash: what() could be anyone's code. The standard library's exceptions
+          // keep their text in __std_exception_data::_What, right after the vtable, and don't override what()
+          if (!endsWith(record.cppType, "@std@@"))
+            continue;
+          auto text = *reinterpret_cast<char const* const*>(base + 8);
           if (text)
             copyText(record.cppWhat, sizeof(record.cppWhat), text);
         }
@@ -456,7 +476,8 @@ namespace
       record.parameters[i] = exception.ExceptionInformation[i];
     record.threadId = GetCurrentThreadId();
     record.mainThread = file->header.mainThread;
-    record.pureCall = s_pureCall.load();
+    // Only from the exception itself: a flag would stay set if something caught it and the game went on
+    record.pureCall = exception.ExceptionCode == session::PURECALL_CODE;
 
     auto const* registers = &context.Rax;
     for (int i = 0; i < 16; i++)
@@ -489,6 +510,11 @@ namespace
 
   LONG WINAPI onUnhandledException(EXCEPTION_POINTERS* info)
   {
+    // Back here through a filter that replaced this one and calls the one it replaced: on to Geode's
+    auto thread = GetCurrentThreadId();
+    if (s_passingOn.load() == thread)
+      return s_original ? s_original(info) : EXCEPTION_CONTINUE_SEARCH;
+
     if (s_capturing.exchange(1) == 0)
     {
       __try
@@ -498,18 +524,28 @@ namespace
       __except (EXCEPTION_EXECUTE_HANDLER)
       {
       }
+      s_captured.store(1);
     }
-    // Geode's handler: its crashlog and its window, exactly as without this mod
-    if (s_previous)
-      return s_previous(info);
-    return EXCEPTION_CONTINUE_SEARCH;
+    else
+    {
+      // Another thread is writing its record: Geode's handler could end the process before it's complete
+      for (int waited = 0; waited < 200 && !s_captured.load(); waited++)
+        Sleep(10);
+    }
+    // Geode's handler: its crashlog and its window, exactly as without this mod (or a filter that went in
+    // front of Crash Doctor's later, which it went back in front of)
+    if (!s_previous)
+      return EXCEPTION_CONTINUE_SEARCH;
+    s_passingOn.store(thread);
+    auto result = s_previous(info);
+    s_passingOn.store(0);
+    return result;
   }
 
   // A pure virtual call ends in the C runtime's abort(), which ends the process without an exception:
   // nothing would be written, Geode's handler included. An exception of its own goes the usual way
   void __cdecl onPureCall()
   {
-    s_pureCall.store(1);
     RaiseException(session::PURECALL_CODE, EXCEPTION_NONCONTINUABLE, 0, nullptr);
     // Not reached; if a filter ever continued it, the previous handler (or abort) gets it
     if (s_previousPurecall)
@@ -534,5 +570,18 @@ void capture::install(session::File* file)
   s_file = file;
   reserveStack();
   s_previous = SetUnhandledExceptionFilter(onUnhandledException);
+  s_original = s_previous;
   s_previousPurecall = _set_purecall_handler(onPureCall);
+}
+
+void const* capture::reclaim()
+{
+  if (!s_file)
+    return nullptr;
+  auto current = SetUnhandledExceptionFilter(onUnhandledException);
+  if (current == onUnhandledException)
+    return nullptr;
+  // In front again, and calling it next: it may call Geode's itself, or call this one back, which goes to Geode's
+  s_previous = current ? current : s_original;
+  return reinterpret_cast<void const*>(current);
 }

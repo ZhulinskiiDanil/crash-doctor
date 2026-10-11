@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Crash Doctor's check for one kind of crash, or a start without one:
-#   testbed/check.sh <null|recursion|use-after-free|thread|pure-virtual|cpp-exception|divide|hook-null|none> [screenshot.png]
+#   testbed/check.sh <null|recursion|use-after-free|thread|pure-virtual|cpp-exception|divide|hook-null|none|report-guard> [screenshot.png]
 # For a crash: the flag file, a start that crashes (waits for Geode's crashlog, then closes the game),
 # a second start without the flag, Crash Doctor's result line from its log, a screenshot of the report.
 # For none: a start, a minute in the main menu, no result line and no report.
@@ -31,6 +31,36 @@ wait_for() {
 }
 
 stop
+
+# The report's guard: a crash, then another mod's crash while its report is shown, then a start that reports it
+if [ "$kind" = "report-guard" ]; then
+  mkdir -p "$(dirname "$flag")"
+  for step in null during-report; do
+    echo "$step" > "$flag"
+    before="$(newest "$crashlogs")"
+    geode run --background >/dev/null 2>&1
+    wait_for '[ "$(newest "$crashlogs")" != "$before" ]' 120 || { echo "FAIL: no crash at $step"; stop; exit 1; }
+    sleep 2
+    echo "crashed at $step: $(newest "$crashlogs")"
+    log="$logs/$(newest "$logs")"
+    grep -E "crash-doctor-result" "$log" | cut -c1-120
+    stop
+  done
+  rm -f "$flag"
+  before_log="$(newest "$logs")"
+  geode run --background >/dev/null 2>&1
+  wait_for '[ "$(newest "$logs")" != "$before_log" ]' 60
+  log="$logs/$(newest "$logs")"
+  wait_for 'grep -q "no report this time\|crash-doctor-result" "$log"' 90
+  sleep 5
+  grep -E "no report this time|crash-doctor-result" "$log" | cut -c1-160
+  # The crash during the report was the testbed's, not Crash Doctor's: it's reported like any other. Only a
+  # crash with Crash Doctor's own code on the stack is skipped (the guard), which the testbed can't cause
+  grep -q "crash-doctor-result" "$log" && echo "OK: the crash during the report is reported" || echo "FAIL: not reported"
+  running && echo "the game is running" || echo "FAIL: the game isn't running"
+  stop
+  exit 0
+fi
 
 if [ "$kind" != "none" ]; then
   mkdir -p "$(dirname "$flag")"
