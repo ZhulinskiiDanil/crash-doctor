@@ -1,6 +1,74 @@
 # NOTES: Crash Doctor, the autonomous run
 
 Start: **Sun Oct 11 14:44:25 2026** (the first `date` of the run). Budget: 8 hours, until 22:44.
+At 17:12:55 a new goal came: finish stage 2 and stop, within 1.5 hours. End: **Sun Oct 11 17:29 2026**, 2 h 45 min
+from the start. The last checks: `geode build` of the mod and the testbed, 6 of 6 test suites, all 8 testbed kinds
+right and a start without a crash clean (the table at the end).
+
+## Links
+
+- Repository: https://github.com/ZhulinskiiDanil/crash-doctor
+- Final release: https://github.com/ZhulinskiiDanil/crash-doctor/releases/tag/v0.3.0 (`zhulis.crash-doctor.geode`
+  from CI). All releases, v0.1.0 to v0.3.0, are pre-releases: https://github.com/ZhulinskiiDanil/crash-doctor/releases
+- Zhulis Mods Manager: the entry in `mods.json`,
+  https://github.com/ZhulinskiiDanil/zhulis-mods-manager/blob/main/mods.json (commit 368a6f9), and in its built-in
+  list (commit e2a48a4). Its description says "Beta", the releases show with *Include pre-releases* on (its beta
+  channel). The manager in the game fetched Crash Doctor's releases (its cache has `ZhulinskiiDanil_crash-doctor.json`).
+
+## What's done
+
+| | What | Checked by |
+| --- | --- | --- |
+| Stage 1 | Crumbs in a memory-mapped file (scenes, popups, buttons with ID and class, keys); at the crash: the exception, registers, modules from the PEB, the bytes around RIP, the raw stack, an unwound stack, the thread, into the same file, then Geode's handler; at the next start: DbgHelp, the culprit mod, file and line, the report over the menu; 5 diagnoses in Russian and English; **Open in VS Code**, **Copy report**; the analysis Geode-free with tests | 5 testbed kinds, every time; the tests; screenshots |
+| Testbed | `testbed/`: a separate mod with a PDB, crashes by a flag file from its `$modify` after pressing two buttons; `testbed/check.sh` runs the whole check | never published, removed from the mods folder at the end |
+| Stage 2 | All 7 backlog items, one part of item 4 skipped with the reason (the table below) | |
+| Mine | The stack through Geode's hook handlers (by their frame pointer, as deep as Geode's crashlog); Crash Doctor's crash filter kept in front; a pure virtual call gets a Geode crashlog too; history by signature; a test of damaged session files | |
+
+## Decisions
+
+- **A memory-mapped session file** is the "file opened ahead": the handler and the crumbs only write memory, the
+  OS writes it to disk even when the process dies. The record counts only when its state is written last.
+- **Chained in front of Geode's filter, never instead of it.** Geode's crashlog and window are exactly as before
+  (checked: a crashlog for every kind). A pure virtual call used to end the game silently through `abort()`; now
+  it's an exception, so Geode writes a crashlog for it too.
+- **The thread testbed crash is a null child added to the scene inside cocos, on a worker thread.** Four realistic
+  attempts didn't crash at all (see the log): GL calls without a context are ignored by this driver, Geode gives
+  missing textures a placeholder, `CCArray` checks indexes. So the immediate cause in the testbed is a null
+  pointer inside `CCNode::addChild`; the report's diagnosis is about the thread, which is the bug that matters.
+  On the main thread the same crash is diagnosed as a null pointer (tested).
+- **The use after free testbed** keeps a plain pointer to a node removed from the menu and calls it. Refilling the
+  freed memory didn't work (cocos' heap isn't the testbed's): the destructor leaves `CCObject`'s vtable and the call
+  lands on 0. That's the realistic case, and it's what the diagnosis recognizes (a vtable in read-only data, the
+  slot past its end).
+- **A diagnosis only on signs that hold up.** After the review: no blame below a hook handler, hook recursion only
+  for a `$modify`'s class, the thread only with a named cocos UI function, use after free only through a real
+  vtable or no module. A null pointer or a stack overflow with no mod's code on top: the report says "no diagnosis".
+- **Players and developers.** The whole report when the culprit's PDB is on this computer (its developer's), a
+  short one otherwise, with a setting. The copied text names the mods on the stack with versions and the count of
+  the rest (the whole list of 60+ mods doesn't fit a Discord message).
+- **Privacy.** The user's profile folder becomes `%USERPROFILE%` in copied reports (UTF-8, Cyrillic names too); keys
+  that may type text are never named; typing is one crumb.
+- **Releases are GitHub pre-releases** while the version is 0.x, like Mod Profiler's: the manager's beta channel.
+
+## What didn't work, or only partly
+
+- **The startup hangs** (3 of ~60 starts in the checks): investigated, not proven whose (section below).
+- **The thread crash in the testbed is a null pointer inside cocos**, not a real race (above).
+- **A missing resource's nullptr** (backlog 4) skipped: Geode returns a placeholder sprite.
+- **Mod Profiler's table** covered part of some screenshots: something pressed its key at every start.
+- **The report's guard skipping a crash of Crash Doctor's own** couldn't be checked live (the testbed can't make
+  Crash Doctor crash); the live check covers the other branch (another mod's crash during the report is reported),
+  and the decision function is simple (Crash Doctor's DLL in the top 24 frames).
+
+## What I'd do next
+
+- A minidump of a hung start, and ~50 starts with Mod Profiler off, then Crash Doctor off, to settle the hangs.
+- Ask Geode for the detour address of a hook (`Hook::getDetour`): hooks would be matched exactly, not by name.
+- Symbols for `GeometryDash.exe` frames from Geode's bindings (addresses to names), so crashes in the game's code
+  name the function too.
+- A real race in the testbed for the thread kind, and the same report flow on Android (a signal handler instead of
+  an exception filter).
+- Publishing on the Geode Index after a while as a beta.
 
 ## Log
 
