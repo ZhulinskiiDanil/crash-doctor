@@ -243,6 +243,27 @@ namespace
     return false;
   }
 
+  // Geode's hook handlers (TulipHook's generated code, in no module) start with `push rbp; mov rbp, rsp`:
+  // their caller's return address is right above the saved RBP. RBP still holds the handler's frame, as
+  // the function it called restored it (or never touched it)
+  bool unwindFramePointer(session::CrashRecord const& record, CONTEXT& context)
+  {
+    auto frame = context.Rbp;
+    if (frame < context.Rsp || frame + 16 > record.stackBase || (frame & 7))
+      return false;
+    auto returnAddress = *reinterpret_cast<uint64_t const*>(frame + 8);
+    auto savedFrame = *reinterpret_cast<uint64_t const*>(frame);
+    if (!returnAddress)
+      return false;
+    // Back into a module: right after a call. Into more generated code (another handler): its frame further up
+    if (findModule(record, returnAddress) >= 0 ? !looksLikeReturn(record, returnAddress) : savedFrame <= frame)
+      return false;
+    context.Rip = returnAddress;
+    context.Rsp = frame + 16;
+    context.Rbp = savedFrame;
+    return true;
+  }
+
   void walkStack(session::CrashRecord& record)
   {
     auto& context = s_walk;
@@ -291,7 +312,7 @@ namespace
           context.Rip = *reinterpret_cast<uint64_t const*>(context.Rsp);
           context.Rsp += 8;
         }
-        else
+        else if (!unwindFramePointer(record, context))
         {
           // Code without unwind data in the middle of the stack: a hook's handler, a trampoline
           if (scans++ >= MAX_SCANS || !scanForReturn(record, context))

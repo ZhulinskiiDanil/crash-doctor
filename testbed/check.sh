@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Crash Doctor's check for one kind of crash, or a start without one:
-#   testbed/check.sh <null|recursion|use-after-free|thread|pure-virtual|none> [screenshot.png]
+#   testbed/check.sh <null|recursion|use-after-free|thread|pure-virtual|cpp-exception|divide|hook-null|none> [screenshot.png]
 # For a crash: the flag file, a start that crashes (waits for Geode's crashlog, then closes the game),
 # a second start without the flag, Crash Doctor's result line from its log, a screenshot of the report.
 # For none: a start, a minute in the main menu, no result line and no report.
@@ -80,7 +80,8 @@ else
   grep -E "\[Crash Doctor\]" "$log" | grep -v "Watching" | head -10
   expected="$(grep -n "// expect:" "$here/src/main.cpp" | grep -E "expect: ($(case "$kind" in
     null) echo null-pointer ;; recursion) echo hook-recursion ;; use-after-free) echo use-after-free ;;
-    thread) echo wrong-thread ;; pure-virtual) echo pure-virtual-call ;; esac))" | cut -d: -f1)"
+    thread) echo wrong-thread ;; pure-virtual) echo pure-virtual-call ;; cpp-exception) echo cpp-exception ;;
+    divide) echo divide-by-zero ;; hook-null) echo hook-null-pointer ;; esac))" | cut -d: -f1)"
   echo "expected line in testbed/src/main.cpp: $expected"
   if [ -n "$shot" ]; then
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$here/screenshot.ps1")" "$(cygpath -w "$shot")"

@@ -317,6 +317,21 @@ int main()
     CHECK(diagnose(crash).culprit == "zhulis.crash-doctor");
   }
   {
+    // Crash Doctor's breadcrumb hook passing a button's call on: the game crashed under it, not its fault
+    auto crash = accessViolation(0x20);
+    crash.frames = {
+        frame(M_GAME, GAME, 0x100, 0x80),
+        frame(-1, 0x20000000, 0, 0),
+        frame(M_SELF, SELF, 0x300, 0x280, "CrumbMenuItem::activate"),
+        frame(-1, 0x20000000, 0, 0),
+        frame(M_TESTBED, TESTBED, 0x700, 0x680, "press"),
+    };
+    CHECK(diagnose(crash).culprit == "zhulis.crash-doctor-testbed");
+    // Without the testbed below it: no mod to blame, no guess
+    crash.frames.pop_back();
+    CHECK(diagnose(crash).kind == Kind::Unknown);
+  }
+  {
     // Anything else: no guess
     auto crash = accessViolation(0);
     crash.code = 0xC0000409;

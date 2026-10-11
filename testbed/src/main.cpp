@@ -130,11 +130,24 @@ class $modify(TestbedMenuLayer, MenuLayer)
     s_depth = s_depth - 1;
   }
 
+  void onAchievements(CCObject* sender)
+  {
+    if (s_kind != "hook-null")
+      return MenuLayer::onAchievements(sender);
+    // A crash in a hook, reached through the game's button: the label isn't there
+    auto label = typeinfo_cast<CCLabelBMFont*>(this->getChildByIDRecursive("testbed-achievements-label"));
+    label->setString("Achievements!"); // expect: hook-null-pointer
+  }
+
   void onCrash(float)
   {
     log::info("Testbed: crashing now with {}", s_kind);
     if (s_kind == "null")
       crashNull();
+    else if (s_kind == "cpp-exception")
+      crashException();
+    else if (s_kind == "divide")
+      crashDivide();
     else if (s_kind == "recursion")
     {
       s_recursionArmed = true;
@@ -148,6 +161,22 @@ class $modify(TestbedMenuLayer, MenuLayer)
       delete static_cast<Listener*>(new ScoreListener());
     else
       log::warn("Unknown crash kind {}", s_kind);
+  }
+
+  NOINLINE void crashException()
+  {
+    // A number parsed from a setting that isn't one: std::stoi throws, nothing catches it
+    auto text = std::string("not a number");
+    auto value = std::stoi(text); // expect: cpp-exception
+    log::info("Parsed {}", value);
+  }
+
+  NOINLINE void crashDivide()
+  {
+    // Items per page from a count that turned out 0
+    volatile int pages = 0;
+    auto perPage = static_cast<int>(this->getChildrenCount()) / pages; // expect: divide-by-zero
+    log::info("Per page {}", perPage);
   }
 
   NOINLINE void crashNull()

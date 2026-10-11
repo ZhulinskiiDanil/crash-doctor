@@ -160,6 +160,10 @@ namespace
     s_previous.reset();
     log::info("The last session crashed: {}", report::describe(data, report::Language::English).title);
     log::info("crash-doctor-result {}", report::resultLine(data));
+    std::vector<std::string> frames;
+    for (size_t i = 0; i < data.crash.frames.size() && i < 16; i++)
+      frames.push_back(report::frameLine(data, data.crash.frames[i]));
+    log::info("crash-doctor-stack {}", fmt::join(frames, " | "));
     for (auto const& line : report::crumbLines(data, 15))
       log::info("crash-doctor-crumb {}", line);
     s_report = std::move(data);

@@ -51,11 +51,21 @@ namespace
 
   // The topmost frame in a mod's code. Crash Doctor's own frames are skipped when it raised the
   // exception itself (a pure virtual call goes through its handler)
+  // Its breadcrumb hooks are on the way of every button and scene: a frame of Crash Doctor that called on
+  // through a hook's handler (generated code, no module) only passed the call on
+  bool isSelfPassingOn(Crash const& crash, size_t index)
+  {
+    auto const& frame = crash.frames[index];
+    if (kindOf(crash, frame) != ModuleKind::Mod || modOf(crash, frame) != crash.selfId || index == 0)
+      return false;
+    return crash.frames[index - 1].module < 0;
+  }
+
   int firstModFrame(Crash const& crash, size_t from = 0)
   {
     auto self = crash.pureCall || crash.code == PURECALL;
     for (auto i = from; i < crash.frames.size(); i++)
-      if (isMod(crash, crash.frames[i], self))
+      if (isMod(crash, crash.frames[i], self) && !isSelfPassingOn(crash, i))
         return static_cast<int>(i);
     return -1;
   }
