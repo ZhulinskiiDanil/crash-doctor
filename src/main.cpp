@@ -180,7 +180,10 @@ namespace
     if (s_reportShown || !s_report)
       return;
     s_reportShown = true;
-    if (auto popup = ReportPopup::create(*s_report, language()))
+    // In detail for a developer (the mod's PDB is on this computer) or when asked; short for a player
+    auto detail = Mod::get()->getSettingValue<std::string>("report-detail");
+    bool detailed = detail == "Always detailed" || (detail != "Always short" && report::hasSymbols(*s_report));
+    if (auto popup = ReportPopup::create(*s_report, language(), detailed))
       popup->show();
   }
 } // namespace

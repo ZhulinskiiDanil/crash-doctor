@@ -63,6 +63,12 @@ namespace report
   // The diagnosis as a title, what it means and what to do
   Words describe(Data const& data, Language language);
 
+  // The same for a player, not a developer: which mod it most likely was and what to do about it
+  Words describeForPlayer(Data const& data, Language language);
+
+  // Whether the culprit's frame has a file and line: its mod was built with a PDB that's on this computer
+  bool hasSymbols(Data const& data);
+
   // "zhulis.crash-doctor-testbed.dll!TestbedMenuLayer::crashNull + 0x1c (main.cpp:42)"
   std::string frameLine(Data const& data, analysis::Frame const& frame);
 

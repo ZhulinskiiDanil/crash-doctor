@@ -30,6 +30,17 @@
 			"type": "bool",
 			"default": true
 		},
+		"report-detail": {
+			"name": "Report detail",
+			"description": "Auto: the whole report (the line, the code, the stack) when the crashed mod has its PDB on this computer, which is how a mod's developer has it; for everyone else, which mod it was and what to do, with the details a button away",
+			"type": "string",
+			"default": "Auto",
+			"one-of": [
+				"Auto",
+				"Always detailed",
+				"Always short"
+			]
+		},
 		"language": {
 			"name": "Language",
 			"description": "The report's language. Auto: Russian on a Russian Windows, English otherwise",

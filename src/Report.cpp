@@ -230,6 +230,44 @@ Words report::describe(Data const& data, Language language)
   return words;
 }
 
+bool report::hasSymbols(Data const& data)
+{
+  auto frame = culpritFrame(data);
+  return frame && !frame->file.empty() && frame->line > 0;
+}
+
+Words report::describeForPlayer(Data const& data, Language language)
+{
+  bool ru = language == Language::Russian;
+  auto diagnosis = describe(data, language).title;
+  Words words;
+  auto const& id = data.diagnosis.culprit;
+  int count = data.history.empty() ? 1 : data.history.front().count;
+  if (id.empty())
+  {
+    words.title = ru ? "Игра упала" : "The game crashed";
+    words.explanation = ru ? "Не удалось понять, какой мод виноват: в момент краша кода модов в стеке не было."
+                           : "It isn't clear which mod it was: no mod's code was on the stack when it crashed.";
+    words.advice = ru ? "Если краш повторяется, нажмите «Скопировать отчёт» и отправьте его в Discord Geode или "
+                        "разработчикам модов, которые вы ставили недавно."
+                      : "If it happens again, press Copy report and send it to Geode's Discord or to the developers of "
+                        "the mods you installed lately.";
+    return words;
+  }
+  auto name = modName(data, id);
+  words.title = ru ? "Игра упала из-за мода " + name : "The game crashed in " + name;
+  words.explanation = ru ? "Это ошибка в моде " + name + " (" + id + "), не в игре и не у вас. " + diagnosis + "."
+                         : "It's a bug in " + name + " (" + id + "), not in the game or on your side. " + diagnosis + ".";
+  if (count > 1)
+    words.explanation += ru ? " Этот краш был уже " + std::to_string(count) + " раз."
+                            : " This crash happened " + std::to_string(count) + " times.";
+  words.advice = ru ? "Нажмите «Скопировать отчёт» и отправьте его разработчику мода. Если краш повторяется, выключите "
+                      "мод в списке модов Geode, пока не выйдет исправление."
+                    : "Press Copy report and send it to the mod's developer. If it keeps happening, turn the mod off "
+                      "in Geode's mods list until a fix is out.";
+  return words;
+}
+
 std::string report::frameLine(Data const& data, analysis::Frame const& frame)
 {
   std::string line;

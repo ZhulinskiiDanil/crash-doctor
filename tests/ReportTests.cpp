@@ -81,6 +81,23 @@ int main()
     CHECK(describe(copy, Language::English).advice.find("MenuLayer::onMoreGames(...)") != std::string::npos);
   }
 
+  // ! --- For a player --- !
+
+  {
+    CHECK(hasSymbols(data));
+    auto player = describeForPlayer(data, Language::English);
+    CHECK(player.title == "The game crashed in Crash Doctor Testbed");
+    CHECK(player.explanation.find("Most likely: a null pointer") != std::string::npos);
+    auto copy = data;
+    copy.crash.frames[0].file.clear();
+    CHECK(!hasSymbols(copy));
+    copy.history = {{0, "s", "null-pointer", "zhulis.crash-doctor-testbed", "x", 3}};
+    CHECK(describeForPlayer(copy, Language::Russian).explanation.find("3") != std::string::npos);
+    copy.diagnosis = {};
+    CHECK(describeForPlayer(copy, Language::English).title == "The game crashed");
+    CHECK(!hasSymbols(copy));
+  }
+
   // ! --- Copied text --- !
 
   {

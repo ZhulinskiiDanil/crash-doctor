@@ -4,6 +4,8 @@
 #include <Geode/ui/ScrollLayer.hpp>
 #include <Geode/utils/web.hpp>
 
+#include <ctime>
+
 using namespace geode::prelude;
 
 namespace
@@ -27,10 +29,10 @@ namespace
   }
 } // namespace
 
-ReportPopup* ReportPopup::create(report::Data const& data, report::Language language)
+ReportPopup* ReportPopup::create(report::Data const& data, report::Language language, bool detailed)
 {
   auto popup = new ReportPopup();
-  if (popup->init(data, language))
+  if (popup->init(data, language, detailed))
   {
     popup->autorelease();
     return popup;
@@ -44,18 +46,18 @@ char const* ReportPopup::ui(char const* english, char const* russian) const
   return m_language == report::Language::Russian ? russian : english;
 }
 
-bool ReportPopup::init(report::Data const& data, report::Language language)
+bool ReportPopup::init(report::Data const& data, report::Language language, bool detailed)
 {
   if (!Popup::init(WIDTH, HEIGHT))
     return false;
   m_data = data;
   m_language = language;
+  m_detailed = detailed;
   setTitle("Crash Doctor");
   m_noElasticity = true;
 
-  auto words = report::describe(m_data, m_language);
-
-  // The diagnosis, above the list
+  // The diagnosis (or, for a player, the mod), above the list
+  auto words = m_detailed ? report::describe(m_data, m_language) : report::describeForPlayer(m_data, m_language);
   auto heading = CCLabelTTF::create(words.title.c_str(), FONT, 13.f);
   heading->setColor(TITLE);
   if (heading->getContentSize().width > LIST_WIDTH)
@@ -79,6 +81,49 @@ bool ReportPopup::init(report::Data const& data, report::Language language)
                           ->setAutoGrowAxis(LIST_HEIGHT)
                           ->setGap(2.f));
   m_mainLayer->addChildAtPosition(list, Anchor::Center, {-LIST_WIDTH / 2.f, -8.f - LIST_HEIGHT / 2.f});
+
+  if (m_detailed)
+    fillDetails();
+  else
+    fillShort();
+
+  m_column->updateLayout();
+  list->scrollToTop();
+
+  auto scrollbar = Scrollbar::create(list);
+  m_mainLayer->addChildAtPosition(scrollbar, Anchor::Center, {LIST_WIDTH / 2.f + 10.f, -8.f});
+
+  // The buttons. VS Code only when the file is on this computer (its source could be read)
+  auto menu = CCMenu::create();
+  menu->setContentSize({WIDTH - 20.f, 30.f});
+  menu->setLayout(RowLayout::create()->setGap(8.f));
+  if (m_detailed && !m_data.source.empty())
+    menu->addChild(makeButton(ui("Open in VS Code", "Открыть в VS Code"), [this] { onOpenCode(); }));
+  if (!m_detailed)
+    menu->addChild(makeButton(ui("Details", "Подробнее"), [this] { onDetails(); }));
+  menu->addChild(makeButton(ui("Copy report", "Скопировать отчёт"), [this] { onCopy(); }));
+  menu->addChild(makeButton(ui("Crashlogs", "Папка crashlog"), [this] { onCrashlogs(); }));
+  menu->updateLayout();
+  m_mainLayer->addChildAtPosition(menu, Anchor::Bottom, {0.f, 22.f});
+  return true;
+}
+
+void ReportPopup::fillShort()
+{
+  auto words = report::describeForPlayer(m_data, m_language);
+  addText(words.explanation, FONT, 11.f, TEXT);
+  addText(words.advice, FONT, 11.f, DIM, 6.f);
+  auto crumbs = report::crumbLines(m_data, 5);
+  if (!crumbs.empty())
+  {
+    addSection(ui("Right before it", "Прямо перед этим"));
+    addText(fmt::format("{}", fmt::join(crumbs, "\n")), MONO, 7.5f, DIM);
+  }
+}
+
+void ReportPopup::fillDetails()
+{
+  auto words = report::describe(m_data, m_language);
 
   // Where first: the mod and the line are what a developer looks for
   if (auto culprit = report::culpritLine(m_data); !culprit.empty())
@@ -172,25 +217,7 @@ bool ReportPopup::init(report::Data const& data, report::Language language)
           FONT, 9.f, DIM);
   if (!m_data.crashlog.empty())
     addText(std::string(ui("Geode's crashlog: ", "Crashlog Geode: ")) + report::scrub(m_data.crashlog, profileFolder()), MONO,
-            10.f, DIM);
-
-  m_column->updateLayout();
-  list->scrollToTop();
-
-  auto scrollbar = Scrollbar::create(list);
-  m_mainLayer->addChildAtPosition(scrollbar, Anchor::Center, {LIST_WIDTH / 2.f + 10.f, -8.f});
-
-  // The buttons
-  auto menu = CCMenu::create();
-  menu->setContentSize({WIDTH - 20.f, 30.f});
-  menu->setLayout(RowLayout::create()->setGap(8.f));
-  if (!report::location(m_data).empty())
-    menu->addChild(makeButton(ui("Open in VS Code", "Открыть в VS Code"), [this] { onOpenCode(); }));
-  menu->addChild(makeButton(ui("Copy report", "Скопировать отчёт"), [this] { onCopy(); }));
-  menu->addChild(makeButton(ui("Crashlogs", "Папка crashlog"), [this] { onCrashlogs(); }));
-  menu->updateLayout();
-  m_mainLayer->addChildAtPosition(menu, Anchor::Bottom, {0.f, 22.f});
-  return true;
+            7.5f, DIM);
 }
 
 void ReportPopup::addText(std::string const& text, char const* font, float size, ccColor3B color, float gapAbove)
@@ -214,7 +241,7 @@ void ReportPopup::addSection(std::string const& title)
 
 CCMenuItemSpriteExtra* ReportPopup::makeButton(std::string const& label, std::function<void()> action)
 {
-  auto text = CCLabelTTF::create(label.c_str(), FONT, 9.f);
+  auto text = CCLabelTTF::create(label.c_str(), FONT, 10.f);
   auto size = CCSize(text->getContentSize().width + 20.f, 24.f);
   auto background = NineSlice::create("GJ_button_04.png");
   background->setContentSize(size);
@@ -231,11 +258,21 @@ void ReportPopup::onCopy()
 
 void ReportPopup::onOpenCode()
 {
-  auto frame = m_data.crash.frames[m_data.diagnosis.frame];
+  auto const& frame = m_data.crash.frames[m_data.diagnosis.frame];
   web::openLinkInBrowser(report::vscodeLink(frame.file, frame.line));
 }
 
 void ReportPopup::onCrashlogs()
 {
   file::openFolder(dirs::getCrashlogsDir());
+}
+
+void ReportPopup::onDetails()
+{
+  // The detailed one in its place
+  auto data = m_data;
+  auto language = m_language;
+  onClose(nullptr);
+  if (auto popup = ReportPopup::create(data, language, true))
+    popup->show();
 }
